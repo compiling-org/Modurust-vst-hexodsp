@@ -36,8 +36,11 @@ impl HexoDspSynth {
         Self
     }
 
-    pub fn process(&mut self, _input: &[f32], _output: &mut [f32]) {
-        // Placeholder for HexoDSP processing
+    pub fn process(&mut self, _input: &[f32], output: &mut [f32]) {
+        // Placeholder for HexoDSP processing - just pass through for now
+        if output.len() >= _input.len() {
+            output[.._input.len()].copy_from_slice(_input);
+        }
     }
 
     pub fn add_node(&mut self, _node_type: &str, _id: &str) {
@@ -68,6 +71,15 @@ impl ModurustVstHexodsp {
     }
 }
 
+// Placeholder for VST3 plugin declaration
+// nih_plug::nih_export_vst3!(ModurustVstHexodsp);
+
+/// Simple test function to verify the library compiles
+pub fn hello_Modurust_vst_hexodsp() -> &'static str {
+    "Hello from Modurust VST HexoDSP! Advanced modular synthesizer plugin framework."
+}
+
+// HexoDSP runtime implementation (placeholder for future use)
 impl HexoDspRuntime {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
@@ -94,11 +106,6 @@ impl HexoDspRuntime {
     pub fn add_connection(&mut self, from: &str, to: &str) {
         self.connections.push((from.to_string(), to.to_string()));
     }
-}
-
-/// Simple test function to verify the library compiles
-pub fn hello_Modurust_vst_hexodsp() -> &'static str {
-    "Hello from Modurust VST HexoDSP! Advanced modular synthesizer plugin framework."
 }
 
 #[cfg(test)]
