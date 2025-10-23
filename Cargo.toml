@@ -1,0 +1,40 @@
+[package]
+name = "hexodsp-vst3"
+version = "0.1.0"
+edition = "2021"
+description = "VST3 plugin based on HexoDSP modular synthesizer"
+authors = ["Kapil"]
+license = "MIT"
+repository = "https://github.com/compiling-org/hexodsp-vst3"
+homepage = "https://github.com/compiling-org/hexodsp-vst3"
+keywords = ["vst3", "plugin", "modular", "hexodsp", "synthesis"]
+categories = ["multimedia::audio", "api-bindings"]
+
+[lib]
+name = "hexodsp_vst3"
+crate-type = ["cdylib"]
+
+[dependencies]
+# VST3 plugin framework
+vst3-sys = "0.2"
+vst3-bindings = "0.2"
+
+# HexoDSP modular synthesizer
+hexodsp = "0.2"
+
+# Audio processing
+cpal = "0.15"
+rustfft = "6.1"
+
+# Serialization and utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[features]
+default = []
