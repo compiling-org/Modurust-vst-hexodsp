@@ -1,0 +1,23 @@
+[package]
+name = "Modurust-vst-hexodsp"
+version = "0.1.0"
+edition = "2021"
+description = "VST3 plugin based on HexoDSP modular synthesizer"
+authors = ["Kapil"]
+license = "MIT"
+repository = "https://github.com/compiling-org/Modurust-vst-hexodsp"
+homepage = "https://github.com/compiling-org/Modurust-vst-hexodsp"
+keywords = ["vst3", "plugin", "modular", "hexodsp", "synthesis"]
+categories = ["multimedia::audio", "api-bindings"]
+
+[lib]
+name = "Modurust_vst_hexodsp"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Basic dependencies for a simple plugin
+anyhow = "1.0"
+thiserror = "1.0"
+
+[features]
+default = []
