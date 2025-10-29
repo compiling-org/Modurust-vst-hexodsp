@@ -32,12 +32,23 @@ env_logger = "0.10"
 anyhow = "1.0"
 thiserror = "1.0"
 
-# Bevy UI framework (latest version)
-bevy = { version = "0.17", default-features = false, features = ["bevy_winit", "bevy_render", "png"] }
-bevy_egui = "0.38"
+# Eframe UI framework for immediate mode GUI
+eframe = "0.27"
+egui = "0.27"
 
-# Pure egui for UI fallback - use newer version
-eframe = "0.33"
+# Bevy game engine for 3D graphics and advanced rendering
+# bevy = { version = "0.17", features = ["dynamic_linking"] }
+
+# VST3 plugin hosting (commented out - not available on crates.io)
+# vst3-sys = "0.2"
+# vst3-host = "0.1"
+
+# MIDI 2.0 and MPE
+midir = "0.9"
+wmidi = "4.0"
+
+# Real-time audio processing
+cpal = "0.15"
 
 [features]
 default = []

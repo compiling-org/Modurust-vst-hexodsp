@@ -3,7 +3,7 @@
 //! This example shows how to create and manipulate a node graph
 //! for modular audio processing.
 
-use modurust_daw::{
+use hexodsp_daw::{
     node_graph::{NodeGraph, NodeId, Connection},
     audio_nodes::{OscillatorNode, FilterNode, OutputNode},
 };

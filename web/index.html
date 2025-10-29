@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modurust DAW - Revolutionary Digital Audio Workstation</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+</head>
+<body>
+    <!-- Main Application Container -->
+    <div id="app" class="daw-app">
+
+        <!-- Header/Menu Bar -->
+        <header class="app-header">
+            <div class="header-left">
+                <h1 class="app-title">Modurust DAW</h1>
+                <div class="view-tabs">
+                    <button class="view-tab active" data-view="arrangement">
+                        <span class="tab-icon">🎼</span>
+                        Arrangement
+                    </button>
+                    <button class="view-tab" data-view="live">
+                        <span class="tab-icon">🎵</span>
+                        Live
+                    </button>
+                    <button class="view-tab" data-view="node">
+                        <span class="tab-icon">🔗</span>
+                        Node
+                    </button>
+                </div>
+            </div>
+
+            <div class="header-center">
+                <div class="transport-controls">
+                    <button class="transport-btn" id="rewind-btn">⏮</button>
+                    <button class="transport-btn" id="play-btn">▶</button>
+                    <button class="transport-btn" id="pause-btn">⏸</button>
+                    <button class="transport-btn" id="stop-btn">⏹</button>
+                    <button class="transport-btn" id="record-btn">●</button>
+                </div>
+                <div class="time-display">
+                    <span id="current-time">00:00:00.000</span>
+                    <span id="tempo-display">120 BPM</span>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="status-indicators">
+                    <div class="status-item">
+                        <span class="status-icon">🎛</span>
+                        <span class="status-text">Audio: Ready</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon">🧠</span>
+                        <span class="status-text">EEG: Disconnected</span>
+                    </div>
+                </div>
+                <button class="settings-btn">⚙</button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-main">
+
+            <!-- Left Sidebar - Browser -->
+            <aside class="sidebar-left" id="browser-panel">
+                <div class="panel-header">
+                    <h3>Browser</h3>
+                    <button class="panel-toggle">−</button>
+                </div>
+                <div class="panel-content">
+                    <div class="browser-tabs">
+                        <button class="browser-tab active" data-tab="files">Files</button>
+                        <button class="browser-tab" data-tab="instruments">Instruments</button>
+                        <button class="browser-tab" data-tab="effects">Effects</button>
+                        <button class="browser-tab" data-tab="presets">Presets</button>
+                    </div>
+                    <div class="browser-content">
+                        <div class="browser-section active" id="files-tab">
+                            <div class="file-tree">
+                                <div class="file-item folder">Audio Files
+                                    <div class="file-children">
+                                        <div class="file-item file">kick.wav</div>
+                                        <div class="file-item file">snare.wav</div>
+                                        <div class="file-item file">bass.wav</div>
+                                    </div>
+                                </div>
+                                <div class="file-item folder">MIDI Files
+                                    <div class="file-children">
+                                        <div class="file-item file">chord_progression.mid</div>
+                                        <div class="file-item file">drum_pattern.mid</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="browser-section" id="instruments-tab">
+                            <div class="instrument-list">
+                                <div class="instrument-item">HexoDSP Synth</div>
+                                <div class="instrument-item">Sampler</div>
+                                <div class="instrument-item">Drum Machine</div>
+                            </div>
+                        </div>
+                        <div class="browser-section" id="effects-tab">
+                            <div class="effect-list">
+                                <div class="effect-item">Reverb</div>
+                                <div class="effect-item">Delay</div>
+                                <div class="effect-item">Filter</div>
+                            </div>
+                        </div>
+                        <div class="browser-section" id="presets-tab">
+                            <div class="preset-list">
+                                <div class="preset-item">Ambient Pad</div>
+                                <div class="preset-item">Bass House</div>
+                                <div class="preset-item">Synth Lead</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main View Area -->
+            <div class="main-view" id="main-view">
+
+                <!-- Arrangement View -->
+                <div class="view-container active" id="arrangement-view">
+                    <div class="arrangement-header">
+                        <div class="track-controls">
+                            <button class="add-track-btn">+ Add Track</button>
+                            <select class="track-type-select">
+                                <option value="audio">Audio Track</option>
+                                <option value="midi">MIDI Track</option>
+                                <option value="group">Group Track</option>
+                            </select>
+                        </div>
+                        <div class="timeline-controls">
+                            <button class="zoom-in-btn">+</button>
+                            <button class="zoom-out-btn">−</button>
+                            <input type="range" class="zoom-slider" min="0.1" max="10" value="1" step="0.1">
+                        </div>
+                    </div>
+
+                    <div class="arrangement-content">
+                        <div class="track-list">
+                            <!-- Track headers will be dynamically added -->
+                        </div>
+                        <div class="timeline-area">
+                            <div class="timeline-header">
+                                <div class="time-ruler">
+                                    <!-- Time markers will be dynamically added -->
+                                </div>
+                            </div>
+                            <div class="track-lanes">
+                                <!-- Track lanes will be dynamically added -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live View -->
+                <div class="view-container" id="live-view">
+                    <div class="live-header">
+                        <div class="scene-buttons">
+                            <!-- Scene buttons will be dynamically added -->
+                        </div>
+                        <div class="live-controls">
+                            <button class="stop-all-btn">Stop All</button>
+                            <button class="solo-btn">Solo</button>
+                        </div>
+                    </div>
+
+                    <div class="live-content">
+                        <div class="clip-matrix">
+                            <!-- Clip matrix will be dynamically added -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Node View -->
+                <div class="view-container" id="node-view">
+                    <div class="node-header">
+                        <div class="node-toolbar">
+                            <button class="add-node-btn">+ Add Node</button>
+                            <select class="node-category-select">
+                                <option value="generators">Generators</option>
+                                <option value="effects">Effects</option>
+                                <option value="analysis">Analysis</option>
+                                <option value="control">Control</option>
+                            </select>
+                            <button class="clear-nodes-btn">Clear All</button>
+                            <button class="save-patch-btn">Save Patch</button>
+                        </div>
+                    </div>
+
+                    <div class="node-content">
+                        <canvas id="node-canvas" width="2000" height="1500"></canvas>
+                        <div class="node-palette">
+                            <!-- Node palette will be dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Sidebar - Mixer -->
+            <aside class="sidebar-right" id="mixer-panel">
+                <div class="panel-header">
+                    <h3>Mixer</h3>
+                    <button class="panel-toggle">−</button>
+                </div>
+                <div class="panel-content">
+                    <div class="mixer-channels">
+                        <!-- Mixer channels will be dynamically added -->
+                    </div>
+                    <div class="master-section">
+                        <div class="mixer-channel master-channel">
+                            <div class="channel-name">Master</div>
+                            <div class="channel-controls">
+                                <div class="fader-container">
+                                    <input type="range" class="volume-fader" min="0" max="100" value="75" orient="vertical">
+                                    <div class="fader-label">Vol</div>
+                                </div>
+                                <div class="pan-container">
+                                    <input type="range" class="pan-knob" min="-100" max="100" value="0">
+                                    <div class="pan-label">Pan</div>
+                                </div>
+                            </div>
+                            <div class="channel-buttons">
+                                <button class="mute-btn">M</button>
+                                <button class="solo-btn">S</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+        </main>
+
+        <!-- Bottom Panel - Transport & Info -->
+        <footer class="app-footer">
+            <div class="transport-panel">
+                <div class="transport-info">
+                    <span id="playhead-position">00:00:00.000</span>
+                    <span id="loop-indicator">Loop: Off</span>
+                    <span id="metronome-indicator">Metro: On</span>
+                </div>
+                <div class="cpu-meter">
+                    <span>CPU:</span>
+                    <div class="cpu-bar">
+                        <div class="cpu-fill" style="width: 15%"></div>
+                    </div>
+                    <span>15%</span>
+                </div>
+            </div>
+        </footer>
+
+        <!-- Modals and Overlays -->
+        <div id="modals-container">
+            <!-- Settings Modal -->
+            <div class="modal" id="settings-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Settings</h2>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="settings-section">
+                            <h3>Audio Settings</h3>
+                            <div class="setting-item">
+                                <label>Sample Rate:</label>
+                                <select id="sample-rate-select">
+                                    <option value="44100">44.1 kHz</option>
+                                    <option value="48000">48 kHz</option>
+                                    <option value="96000">96 kHz</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label>Buffer Size:</label>
+                                <select id="buffer-size-select">
+                                    <option value="128">128 samples</option>
+                                    <option value="256">256 samples</option>
+                                    <option value="512">512 samples</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3>Interface Settings</h3>
+                            <div class="setting-item">
+                                <label>Theme:</label>
+                                <select id="theme-select">
+                                    <option value="dark">Dark</option>
+                                    <option value="light">Light</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-secondary" id="cancel-settings">Cancel</button>
+                        <button class="btn-primary" id="save-settings">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Modurust DAW...</div>
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/audio-engine.js"></script>
+    <script src="js/ui-manager.js"></script>
+    <script src="js/arrangement-view.js"></script>
+    <script src="js/live-view.js"></script>
+    <script src="js/node-view.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

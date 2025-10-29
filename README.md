@@ -43,21 +43,36 @@ A revolutionary Rust-based Digital Audio Workstation featuring a unique three-vi
 ### Prerequisites
 - Rust 1.75 or later
 - Windows/macOS/Linux
+- For web development: Node.js 16+ and wasm-pack
 
-### Installation
+### Desktop Development
 ```bash
 # Clone the repository
 git clone https://github.com/compiling-org/Modurust-vst-hexodsp.git
-cd Modurust-vst-hexodsp
+cd Modurust-vst-hexodsp/hexodsp-vst3
 
-# Build and run
+# Build and run (desktop mode with Bevy + egui)
 cargo run
 ```
 
+### Web Development
+```bash
+# Install wasm-pack
+cargo install wasm-pack
+
+# Build for web
+wasm-pack build --target web --out-dir web/pkg
+
+# Serve locally
+cd web && python3 -m http.server 8000
+# Open http://localhost:8000 in your browser
+```
+
 ### First Launch
-1. The DAW will automatically detect your audio and MIDI devices
-2. Use the menu bar to switch between Arrangement/Live/Node views
-3. Start creating music with the intuitive three-view interface
+1. **Desktop**: The DAW launches with native Bevy + egui UI
+2. **Web**: Browser automatically loads Bevy WebAssembly or falls back to JavaScript UI
+3. Use the menu bar to switch between Arrangement/Live/Node views
+4. Start creating music with the unified three-view interface
 
 ## 📖 Documentation
 
@@ -123,13 +138,35 @@ Intelligent source separation:
 let stems = stem_separator.separate_mix(audio_file).await?;
 ```
 
+## 🎯 **Unified UI Architecture**
+
+Modurust DAW implements a revolutionary **unified UI system** that works seamlessly across platforms:
+
+### **Desktop Mode (Primary)**
+- **Bevy Engine + egui**: Native desktop performance with GPU acceleration
+- **High-performance rendering**: 60fps with native look and feel
+- **Full system integration**: Native windowing, audio, and hardware access
+
+### **Web Mode (Secondary)**
+- **Bevy WebAssembly**: Same Bevy engine running in browsers
+- **WebGL rendering**: Hardware-accelerated graphics in web browsers
+- **Progressive enhancement**: Falls back to JavaScript UI if WebAssembly unavailable
+
+### **Single Codebase Benefits**
+- ✅ **No UI duplication**: One component system works everywhere
+- ✅ **Consistent behavior**: Same logic across desktop and web
+- ✅ **Future-proof**: Easy to add new platforms (mobile, VR, etc.)
+- ✅ **Performance**: Native performance on desktop, near-native in browsers
+
 ## 🌐 Web Interface
 
-Access Modurust from any web browser:
-- Real-time collaboration
-- Remote control from mobile devices
-- Cloud-based project storage
-- Cross-platform accessibility
+Access Modurust from any web browser with the unified Bevy UI system:
+- **Bevy WebAssembly**: Full DAW functionality in browsers
+- **Real-time collaboration**: Multi-user editing and performance
+- **Remote control**: Mobile devices can control desktop sessions
+- **Cloud integration**: Project storage and synchronization
+- **Cross-platform**: Works on any device with a modern browser
+- **Progressive enhancement**: Falls back gracefully if WebAssembly unavailable
 
 ## 📊 Performance
 
@@ -143,11 +180,16 @@ Access Modurust from any web browser:
 
 ### Building
 ```bash
-# Debug build
+# Desktop build (default)
 cargo build
+cargo run  # Runs with Bevy + egui UI
 
-# Release build
-cargo build --release
+# Web build
+wasm-pack build --target web --out-dir web/pkg
+
+# Release builds
+cargo build --release  # Desktop
+wasm-pack build --target web --release --out-dir web/pkg  # Web
 
 # Run tests
 cargo test
@@ -157,9 +199,29 @@ cargo doc --open
 ```
 
 ### Platform Support
-- **Windows**: WASAPI audio, Windows MIDI
-- **macOS**: CoreAudio, CoreMIDI
-- **Linux**: ALSA/JACK, ALSA MIDI
+- **Windows**: WASAPI audio, Windows MIDI, Bevy + egui UI
+- **macOS**: CoreAudio, CoreMIDI, Bevy + egui UI
+- **Linux**: ALSA/JACK, ALSA MIDI, Bevy + egui UI
+- **Web**: Web Audio API, Web MIDI, Bevy WebAssembly UI
+
+### Unified UI Development
+```rust
+// Single component works everywhere
+UIComponent {
+    id: "play_button".to_string(),
+    component_type: UIComponentType::Button,
+    // ... same definition for desktop and web
+}
+```
+
+### Conditional Compilation
+```rust
+#[cfg(not(target_arch = "wasm32"))]
+fn desktop_ui() { /* egui rendering */ }
+
+#[cfg(target_arch = "wasm32")]
+fn web_ui() { /* WebGL rendering */ }
+```
 
 ## 🤝 Contributing
 
@@ -185,17 +247,30 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🎯 Roadmap
 
-### v0.2.0 (Q1 2026)
-- VST3 plugin hosting
-- Advanced automation features
-- Multi-track recording
-- Plugin ecosystem
+### v0.2.0 (Q1 2026) - Unified UI Polish
+- ✅ **Unified UI System**: Single codebase for desktop/web
+- 🔄 VST3 plugin hosting with unified UI
+- 🔄 Advanced automation with cross-platform sync
+- 🔄 Multi-track recording with real-time collaboration
+- 🔄 Plugin ecosystem with WebAssembly support
 
-### v0.3.0 (Q2 2026)
-- Distributed processing
-- Cloud collaboration
-- Mobile apps
-- Advanced AI features
+### v0.3.0 (Q2 2026) - Cloud & Collaboration
+- 🔄 Distributed processing across devices
+- 🔄 Real-time cloud collaboration
+- 🔄 Mobile apps with unified UI
+- 🔄 Advanced AI features with WebGL acceleration
+
+### v1.0.0 (Q3 2026) - Production Release
+- 🔄 Professional VST3 hosting
+- 🔄 Complete WebAssembly ecosystem
+- 🔄 Cross-platform hardware integration
+- 🔄 Enterprise-grade stability
+
+### Future Vision - Post 1.0
+- **VR/AR Integration**: 3D DAW environments
+- **Quantum Processing**: Quantum-accelerated audio processing
+- **Neural Interfaces**: Direct brain-computer music creation
+- **Metaverse DAW**: Multi-user virtual music studios
 
 ---
 
