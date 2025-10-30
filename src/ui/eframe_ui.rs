@@ -285,6 +285,7 @@ pub struct ArrangementViewState {
     pub automation_lanes_visible: Vec<bool>, // per track
     pub track_inputs: Vec<String>, // input routing per track
     pub track_armed: Vec<bool>, // recording arm status per track
+    pub clips: Vec<TimelineClip>, // All clips in the timeline
 }
 
 impl Default for ArrangementViewState {
@@ -314,6 +315,7 @@ impl Default for ArrangementViewState {
             automation_lanes_visible,
             track_inputs,
             track_armed,
+            clips: Vec::new(),
         }
     }
 }
@@ -350,6 +352,23 @@ pub struct TrackRoute {
     pub to_track: usize,
     pub send_level: f32,
     pub pre_fader: bool,
+}
+
+/// Timeline clip that can spawn audio nodes
+#[derive(Clone, Debug)]
+pub struct TimelineClip {
+    pub id: String,
+    pub name: String,
+    pub track_id: usize,
+    pub start_time: f64, // in beats
+    pub duration: f64,   // in beats
+    pub color: egui::Color32,
+    pub audio_file: Option<String>,
+    pub node_id: Option<String>, // Link to corresponding node in node graph
+    pub is_playing: bool,
+    pub gain: f32,
+    pub fade_in: f32,
+    pub fade_out: f32,
 }
 
 /// Clip operation for advanced editing
@@ -517,6 +536,7 @@ pub struct NodeViewState {
     pub nuwe_shaders: Vec<NuweShader>,
     pub isf_plugins: Vec<ISFPlugin>,
     pub current_category_filter: String,
+    pub active_nodes: Vec<String>, // Nodes currently processing audio from timeline
 }
 
 impl Default for NodeViewState {
@@ -539,6 +559,7 @@ impl Default for NodeViewState {
             nuwe_shaders: Vec::new(),
             isf_plugins: Vec::new(),
             current_category_filter: "All".to_string(),
+            active_nodes: Vec::new(),
         }
     }
 }
@@ -1061,14 +1082,18 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     for (i, channel_state) in ui_state.track_channels.iter_mut().enumerate() {
                         if i >= 12 { break; }
                         ui.vertical(|ui| {
-                            ui.set_min_width(90.0);
+                            ui.set_min_width(65.0); // Reduced from 90
+                            ui.spacing_mut().item_spacing.y = 2.0; // Tighter vertical spacing
+                            ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0); // Smaller buttons
                             ui.group(|ui| {
-                                ui.label(format!("🎵 Track {}", i + 1));
+                                ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body).map(|f| f.size = 10.0); // Smaller font
+                                ui.label(format!("T{}", i + 1)); // Shorter label
 
                                 // Input selector with routing options
-                                ui.label("Input:");
+                                ui.label("In:"); // Shorter label
                                 // FIX: Use channel_state.input directly
                                 egui::ComboBox::from_label(format!("##input_{}", i))
+                                    .width(55.0) // Constrain width
                                     .selected_text(&channel_state.input)
                                     .show_ui(ui, |ui| {
                                         // Simplified list for selector - still needs to use mutable state
@@ -1083,15 +1108,17 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     });
 
                                 // Volume fader with peak metering
-                                ui.label("Volume:");
+                                ui.label("Vol:"); // Shorter label
                                 // INTEGRATION: Link to channel_state.volume and send to audio engine
                                 let old_volume = channel_state.volume;
-                                ui.add(egui::Slider::new(&mut channel_state.volume, 0.0..=1.0).vertical().text("Vol"));
+                                ui.add(egui::Slider::new(&mut channel_state.volume, 0.0..=1.0)
+                                    .vertical()
+                                    .show_value(false)); // Hide value to save space
                                 if (channel_state.volume - old_volume).abs() > 0.001 {
                                     let _ = audio_bridge.send_param(AudioParamMessage::TrackVolume(i, channel_state.volume));
                                 }
                                 ui.horizontal(|ui| {
-                                    ui.label("Peak:");
+                                    ui.label("Pk:"); // Shorter label
                                     // INTEGRATION: Get real-time track peak level from comprehensive feedback bus
                                     if let Some(feedback) = audio_bridge.get_feedback_bus() {
                                         let peak_level = feedback.track_peaks[i.min(feedback.track_peaks.len().saturating_sub(1))];
@@ -1110,16 +1137,18 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                 // Pan control with width
                                 ui.horizontal(|ui| {
-                                    ui.label("Pan:");
+                                    ui.label("P:"); // Shorter label
                                     // INTEGRATION: Link to channel_state.pan and send to audio engine
                                     let old_pan = channel_state.pan;
-                                    ui.add(egui::Slider::new(&mut channel_state.pan, -1.0..=1.0));
+                                    ui.add(egui::Slider::new(&mut channel_state.pan, -1.0..=1.0)
+                                        .show_value(false));
                                     if (channel_state.pan - old_pan).abs() > 0.001 {
                                         let _ = audio_bridge.send_param(AudioParamMessage::TrackPan(i, channel_state.pan));
                                     }
                                     ui.label("W:");
                                     // FIX: Link to channel_state.width
-                                    ui.add(egui::Slider::new(&mut channel_state.width, 0.0..=2.0));
+                                    ui.add(egui::Slider::new(&mut channel_state.width, 0.0..=2.0)
+                                        .show_value(false));
                                 });
 
                                 // Channel controls with solo/mute/arm
@@ -3219,7 +3248,10 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
         );
 
         // Node background with type-based colors
-        let bg_color = match node.node_type.split('.').next().unwrap_or("unknown") {
+        // Check if this node is active from timeline
+        let is_active = state.active_nodes.contains(&node.id);
+        
+        let mut bg_color = match node.node_type.split('.').next().unwrap_or("unknown") {
             "generator" => egui::Color32::from_rgb(80, 120, 160),
             "filter" => egui::Color32::from_rgb(120, 80, 160),
             "effect" => egui::Color32::from_rgb(160, 120, 80),
@@ -3227,8 +3259,26 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
             "utility" => egui::Color32::from_rgb(160, 80, 120),
             _ => egui::Color32::from_rgb(96, 96, 96),
         };
+        
+        // Brighten active nodes
+        if is_active {
+            let [r, g, b, a] = bg_color.to_array();
+            bg_color = egui::Color32::from_rgba_unmultiplied(
+                (r as u16 * 150 / 100).min(255) as u8,
+                (g as u16 * 150 / 100).min(255) as u8,
+                (b as u16 * 150 / 100).min(255) as u8,
+                a
+            );
+        }
 
         ui.painter().rect_filled(node_rect, egui::Rounding::same(6.0), bg_color);
+        
+        // Add pulsing glow for active nodes
+        if is_active {
+            let pulse = (ui.input(|i| i.time as f32 * 3.0).sin() * 0.3 + 0.7);
+            ui.painter().rect_stroke(node_rect.expand(4.0), egui::Rounding::same(8.0),
+                egui::Stroke::new(4.0 * pulse, egui::Color32::from_rgba_unmultiplied(0, 255, 128, (180.0 * pulse) as u8)));
+        }
 
         // Selection highlight
         if node.selected {
