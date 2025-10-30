@@ -1,27 +1,35 @@
-use hexodsp_daw::*;
-use std::error::Error;
+/// HexoDSP DAW - Main Entry Point
+/// 
+/// This is the main entry point for the HexoDSP Digital Audio Workstation,
+/// integrating the eframe UI with the real-time audio engine.
 
-// Real-time visualization
-use hexodsp_daw::ui::eframe_ui::{self, run_hexodsp_ui};
+use hexodsp_daw::{HexoDSPApp, run_hexodsp_ui};
+use hexodsp_daw::audio_engine::HexoDSPEngine;
 
-// File I/O capabilities
-use std::fs;
-use std::path::Path;
-
-fn main() -> Result<(), Box<dyn Error>> {
-    println!("🎵 HexoDSP DAW - Revolutionary Node-Based Digital Audio Workstation");
-    println!("============================================================");
-    println!("🎨 Three-View Interface: Arrangement | Live | Node");
-    println!("🎛️  Features: Real-time Audio | EEG Control | Motion Capture | Fractal Shaders");
-    println!();
-
-    // Initialize logging
-    env_logger::init();
-
-    // Launch the eframe UI (blocking)
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🎵 Starting HexoDSP DAW - Revolutionary Node-Based Audio Workstation");
+    println!("==========================================");
+    
+    // Initialize the audio engine
+    println!("🎛️ Initializing audio engine...");
+    let mut audio_engine = HexoDSPEngine::new()?;
+    
+    // Start the audio engine
+    audio_engine.start()?;
+    
+    // Create a shared reference to the audio engine for the UI
+    // Note: In a production implementation, this would be managed more carefully
+    // to ensure thread safety between the UI and audio threads
+    
+    println!("🖥️ Starting eframe UI...");
+    
+    // Run the eframe UI application
     run_hexodsp_ui()?;
-
+    
+    // Clean shutdown
+    println!("🛑 Shutting down...");
+    audio_engine.stop()?;
+    
+    println!("✅ HexoDSP DAW shutdown complete");
     Ok(())
 }
-
-// No additional types needed - all defined in UI modules

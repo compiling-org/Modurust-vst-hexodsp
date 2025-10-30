@@ -19,5 +19,11 @@
 // UI module - contains the complete eframe implementation
 pub mod ui;
 
+// Audio engine module - real-time audio processing and DSP
+pub mod audio_engine;
+
 // Re-exports for convenience
 pub use ui::*;
+
+// Re-export audio engine components
+pub use audio_engine::*;

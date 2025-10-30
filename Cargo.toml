@@ -50,6 +50,10 @@ wmidi = "4.0"
 # Real-time audio processing
 cpal = "0.15"
 
+# Crossbeam for thread-safe communication in audio bridge
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
+
 [features]
 default = []
 full_stack = []
