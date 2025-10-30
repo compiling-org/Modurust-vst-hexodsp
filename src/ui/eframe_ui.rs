@@ -1946,7 +1946,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
             },
             UIViewMode::Node => {
                 ui.heading("🔗 Node View (Patching)");
-                draw_node_view_full(ui, ui_state, node_state);
+                draw_node_view_full(ui, ui_state, node_state, audio_bridge);
             },
         }
     });
@@ -2814,7 +2814,7 @@ fn draw_live_view(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut LiveVi
 
 /// Draw Node View - Full Implementation
 /// Uses Bevy 0.17 render graph integration
-fn draw_node_view_full(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut NodeViewState) {
+fn draw_node_view_full(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut NodeViewState, audio_bridge: &mut AudioEngineBridge) {
     ui.heading("🎛️ Node-Based Patching View - Modular Synthesis");
 
     // Enhanced Toolbar with categories
@@ -3045,7 +3045,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut N
                 };
                 
                 // Instantiate preset on canvas
-                instantiate_preset_on_canvas(state, &preset, final_x - 70.0, final_y - 50.0);
+                instantiate_preset_on_canvas(state, &preset, final_x - 70.0, final_y - 50.0, audio_bridge);
             }
         }
     }
@@ -3994,7 +3994,9 @@ fn add_instrument_preset(state: &mut NodeViewState, instrument_type: &str) {
 }
 
 /// Instantiate a preset from the browser onto the node canvas
-fn instantiate_preset_on_canvas(state: &mut NodeViewState, preset: &crate::presets::NodePreset, base_x: f32, base_y: f32) {
+fn instantiate_preset_on_canvas(state: &mut NodeViewState, preset: &crate::presets::NodePreset, base_x: f32, base_y: f32, audio_bridge: &mut AudioEngineBridge) {
+    use crate::audio_engine::bridge::AudioParamMessage;
+    
     // Map to convert preset node IDs to canvas node IDs
     let mut id_map = std::collections::HashMap::new();
     
@@ -4022,7 +4024,15 @@ fn instantiate_preset_on_canvas(state: &mut NodeViewState, preset: &crate::prese
             parameters,
         });
         
-        id_map.insert(preset_node.id.clone(), canvas_id);
+        id_map.insert(preset_node.id.clone(), canvas_id.clone());
+        
+        // PHASE 5B: Create audio engine node via bridge
+        let _ = audio_bridge.send_param(AudioParamMessage::CreateNode(
+            preset_node.node_type.clone(),
+            canvas_id,
+        ));
+        
+        // TODO: Set initial parameters via SetNodeParameter messages
     }
     
     // Create all connections from preset
@@ -4039,11 +4049,20 @@ fn instantiate_preset_on_canvas(state: &mut NodeViewState, preset: &crate::prese
                 to_port: preset_conn.to_port.clone(),
                 data_type: "audio".to_string(),
             });
+            
+            // PHASE 5B: Create audio connection via bridge
+            let _ = audio_bridge.send_param(AudioParamMessage::ConnectNodes(
+                from_id.clone(),
+                to_id.clone(),
+                preset_conn.from_port.clone(),
+                preset_conn.to_port.clone(),
+            ));
         }
     }
     
     println!("✅ Instantiated preset '{}' with {} nodes and {} connections", 
         preset.name, preset.nodes.len(), preset.connections.len());
+    println!("🔊 Sent CreateNode and ConnectNodes messages to audio engine");
 }
 
 /// Helper function to calculate distance from point to line segment
