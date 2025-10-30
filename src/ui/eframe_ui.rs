@@ -6,7 +6,7 @@
 /// - Node View: Modular node-based patching
 
 use eframe::egui;
-use crate::audio_engine::bridge::{AudioEngineBridge, AudioParamMessage, AudioEngineState};
+use crate::audio_engine::bridge::{AudioEngineBridge, AudioParamMessage};
 
 /// UI View Modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -260,6 +260,7 @@ pub struct TransportState {
     pub count_in_on: bool,
     pub preroll_bars: f32,
     pub current_time_pos: f64,
+    pub is_playing: bool, // Playback state
 }
 
 /// Arrangement View State
@@ -285,6 +286,7 @@ pub struct ArrangementViewState {
     pub automation_lanes_visible: Vec<bool>, // per track
     pub track_inputs: Vec<String>, // input routing per track
     pub track_armed: Vec<bool>, // recording arm status per track
+    pub tracks: Vec<TimelineTrack>, // Timeline tracks
     pub clips: Vec<TimelineClip>, // All clips in the timeline
 }
 
@@ -294,6 +296,19 @@ impl Default for ArrangementViewState {
         let automation_lanes_visible = vec![false; 12];
         let track_inputs = vec!["None".to_string(); 12];
         let track_armed = vec![false; 12];
+        
+        // Initialize 4 default tracks
+        let mut tracks = Vec::new();
+        for i in 0..4 {
+            tracks.push(TimelineTrack {
+                id: i,
+                name: format!("Track {}", i + 1),
+                height: 80.0,
+                color: egui::Color32::from_rgb(60, 60, 70),
+                muted: false,
+                solo: false,
+            });
+        }
         
         Self {
             timeline_zoom: 1.0,
@@ -315,6 +330,7 @@ impl Default for ArrangementViewState {
             automation_lanes_visible,
             track_inputs,
             track_armed,
+            tracks,
             clips: Vec::new(),
         }
     }
@@ -352,6 +368,17 @@ pub struct TrackRoute {
     pub to_track: usize,
     pub send_level: f32,
     pub pre_fader: bool,
+}
+
+/// Timeline track
+#[derive(Clone, Debug)]
+pub struct TimelineTrack {
+    pub id: usize,
+    pub name: String,
+    pub height: f32,
+    pub color: egui::Color32,
+    pub muted: bool,
+    pub solo: bool,
 }
 
 /// Timeline clip that can spawn audio nodes
@@ -1842,13 +1869,33 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
         });
     }
 
+    // Update transport time during playback (before rendering views)
+    if ui_state.transport_state.is_playing {
+        let delta_time = ctx.input(|i| i.stable_dt) as f64;
+        ui_state.transport_state.current_time_pos += delta_time;
+        
+        // Update which clips are currently playing
+        for clip in &mut arrangement_state.clips {
+            let clip_end = clip.start_time + clip.duration;
+            clip.is_playing = ui_state.transport_state.current_time_pos >= clip.start_time 
+                && ui_state.transport_state.current_time_pos < clip_end;
+        }
+        
+        // Sync active nodes with playing clips
+        update_active_nodes(
+            &arrangement_state, 
+            node_state, 
+            ui_state.transport_state.current_time_pos
+        );
+    }
+
     // --- CENTRAL PANEL: THE MAIN WORKSPACE ---
     egui::CentralPanel::default().show(ctx, |ui| {
         // Render the currently selected view
         match ui_state.current_view {
             UIViewMode::Arrangement => {
                 ui.heading("🎼 Arrangement View (Timeline)");
-                draw_arrangement_view(ui, arrangement_state, ui_state);
+                draw_arrangement_view(ui, arrangement_state, ui_state, node_state);
             },
             UIViewMode::Live => {
                 ui.heading("🎵 Live View (Performance)");
@@ -1871,12 +1918,60 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
 /// Draw Arrangement View - Full Implementation
 /// Uses Bevy 0.17 render graph integration
-fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState, ui_state: &mut UiState) {
+fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState, ui_state: &mut UiState, node_state: &mut NodeViewState) {
     ui.heading("Arrangement View - Professional Timeline");
 
     // Timeline Header with enhanced controls from JS implementation
     ui.horizontal(|ui| {
         ui.label("🎼 Timeline");
+        
+        // Playback Controls
+        if ui_state.transport_state.is_playing {
+            if ui.button("⏸ Pause").clicked() {
+                ui_state.transport_state.is_playing = false;
+                // Update clip playing states
+                for clip in &mut state.clips {
+                    clip.is_playing = false;
+                }
+            }
+        } else {
+            if ui.button("▶ Play").clicked() {
+                ui_state.transport_state.is_playing = true;
+                // Update clip playing states based on current position
+                for clip in &mut state.clips {
+                    let clip_end = clip.start_time + clip.duration;
+                    clip.is_playing = ui_state.transport_state.current_time_pos >= clip.start_time 
+                        && ui_state.transport_state.current_time_pos < clip_end;
+                }
+            }
+        }
+        
+        if ui.button("⏹ Stop").clicked() {
+            ui_state.transport_state.is_playing = false;
+            ui_state.transport_state.current_time_pos = 0.0;
+            // Stop all clips
+            for clip in &mut state.clips {
+                clip.is_playing = false;
+            }
+            // Clear active nodes
+            node_state.active_nodes.clear();
+        }
+        
+        ui.separator();
+        ui.label(format!("Time: {:.2}s", ui_state.transport_state.current_time_pos));
+        ui.separator();
+        
+        if ui.button("+ Test Clip").clicked() {
+            create_test_clip(
+                0, // First track
+                ui_state.transport_state.current_time_pos,
+                4.0, // 4 second duration
+                state,
+                node_state
+            );
+        }
+        
+        ui.separator();
         ui.add(egui::DragValue::new(&mut state.timeline_zoom).clamp_range(0.1..=10.0).prefix("Zoom: "));
         ui.checkbox(&mut state.show_automation, "Show Automation");
         ui.separator();
@@ -1922,269 +2017,85 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState, ui
 
     ui.separator();
 
-    // Track Area with automation lanes
+    // Simplified Track Area with clips
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for track_num in 0..12 {
+        for track in &state.tracks {
             ui.horizontal(|ui| {
-                // Track Header with enhanced controls from JS implementation
+                // Track Header
                 ui.vertical(|ui| {
-                    ui.set_min_width(160.0);
-                    ui.set_min_height(160.0);
+                    ui.set_min_width(120.0);
+                    ui.set_min_height(track.height);
 
-                    ui.label(format!("🎵 Track {}", track_num + 1));
-                    let mut is_selected = state.selected_tracks.contains(&track_num);
-                    if ui.checkbox(&mut is_selected, "Select").changed() {
-                        if is_selected {
-                            state.selected_tracks.push(track_num);
-                        } else {
-                            state.selected_tracks.retain(|&x| x != track_num);
-                        }
-                    }
-
-                    // Track type selector
-                    let mut track_type = "Audio".to_string();
-                    egui::ComboBox::from_label("Type:")
-                        .selected_text(&track_type)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut track_type, "Audio".to_string(), "Audio");
-                            ui.selectable_value(&mut track_type, "MIDI".to_string(), "MIDI");
-                            ui.selectable_value(&mut track_type, "Group".to_string(), "Group");
-                            ui.selectable_value(&mut track_type, "Return".to_string(), "Return");
-                        });
-
-                    // Input routing from JS implementation
-                    ui.label("Input:");
-                    let input_idx = track_num % state.track_inputs.len();
-                    let mut input_source = state.track_inputs.get(input_idx).cloned().unwrap_or("None".to_string());
-                    egui::ComboBox::from_label(format!("##track_input_{}", track_num))
-                        .selected_text(&input_source)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut input_source, "Mic 1".to_string(), "Mic 1");
-                            ui.selectable_value(&mut input_source, "Mic 2".to_string(), "Mic 2");
-                            ui.selectable_value(&mut input_source, "DI 1".to_string(), "DI 1");
-                            ui.selectable_value(&mut input_source, "MIDI 1".to_string(), "MIDI 1");
-                            ui.selectable_value(&mut input_source, "Return 1".to_string(), "Return 1");
-                            ui.selectable_value(&mut input_source, "None".to_string(), "None");
-                        });
-                    if track_num < state.track_inputs.len() {
-                        state.track_inputs[track_num] = input_source;
-                    }
-
-                    // Track controls with arm button from JS - FIX: Link to channel state
-                    ui.horizontal(|ui| {
-                        if let Some(channel_state) = ui_state.track_channels.get_mut(track_num) {
-                            ui.checkbox(&mut channel_state.mute, "M");
-                            ui.checkbox(&mut channel_state.solo, "S");
-                            ui.checkbox(&mut channel_state.arm, "R");
-                        }
-                        // Also update the arrangement view state for backward compatibility
-                        let arm_idx = track_num % state.track_armed.len();
-                        let mut armed = *state.track_armed.get(arm_idx).unwrap_or(&false);
-                        ui.checkbox(&mut armed, "R");
-                        if track_num < state.track_armed.len() {
-                            state.track_armed[track_num] = armed;
-                        }
-                    });
-
-                    // Volume fader with automation
-                    ui.label("Volume:");
-                    // FIX: Link to track_channels volume for persistent state
-                    if let Some(channel_state) = ui_state.track_channels.get_mut(track_num) {
-                        ui.add(egui::Slider::new(&mut channel_state.volume, 0.0..=1.0).vertical().text("Vol"));
-                    }
-
-                    // Pan control
-                    ui.label("Pan:");
-                    // FIX: Link to track_channels pan for persistent state
-                    if let Some(channel_state) = ui_state.track_channels.get_mut(track_num) {
-                        ui.add(egui::Slider::new(&mut channel_state.pan, -1.0..=1.0).text("Pan"));
-                    }
-
-                    // Send controls with advanced routing
-                    ui.collapsing("📤 Sends", |ui| {
-                        for send_num in 0..4 {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Send {}:", send_num + 1));
-                                let mut send_level = 0.0;
-                                ui.add(egui::Slider::new(&mut send_level, 0.0..=1.0));
-                                let mut pre_fader = false; ui.checkbox(&mut pre_fader, "Pre");
-                            });
-                        }
-                    });
-
-                    // Automation lane toggle from JS
-                    ui.separator();
-                    let automation_idx = track_num % state.automation_lanes_visible.len();
-                    let mut show_automation = *state.automation_lanes_visible.get(automation_idx).unwrap_or(&false);
-                    if ui.checkbox(&mut show_automation, "Automation").clicked() {
-                        if track_num < state.automation_lanes_visible.len() {
-                            state.automation_lanes_visible[track_num] = show_automation;
-                        }
-                    }
+                    ui.label(&track.name);
+                    // Simple controls
+                    ui.label(format!("Clips: {}", state.clips.iter().filter(|c| c.track_id == track.id).count()));
                 });
 
-                // Track Timeline with automation
+                // Track Timeline
                 ui.vertical(|ui| {
-                    ui.set_min_height(120.0);
-                    ui.set_min_width(3200.0); // 32 bars * 100 pixels per bar
+                    ui.set_min_height(track.height);
+                    ui.set_min_width(1600.0);
 
                     let (rect, _) = ui.allocate_at_least(
-                        egui::Vec2::new(3200.0, 120.0),
+                        egui::Vec2::new(1600.0, track.height),
                         egui::Sense::click_and_drag()
                     );
 
                     // Draw timeline background
-                    ui.painter().rect_filled(rect, 2.0, egui::Color32::from_gray(24));
+                    ui.painter().rect_filled(rect, 2.0, track.color);
 
-                    // Draw bar lines
-                    for bar in 0..32 {
-                        let x = rect.left() + (bar as f32 * 100.0);
+                    // Draw grid lines every second
+                    for i in 0..60 {
+                        let x = rect.left() + (i as f32 * 40.0); // 40px per second
                         ui.painter().line_segment(
                             [egui::Pos2::new(x, rect.top()), egui::Pos2::new(x, rect.bottom())],
-                            egui::Stroke::new(2.0, egui::Color32::from_gray(64))
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(80))
                         );
                     }
 
-                    // Draw beat lines
-                    for beat in 0..128 { // 4 beats per bar * 32 bars
-                        let x = rect.left() + (beat as f32 * 25.0);
-                        ui.painter().line_segment(
-                            [egui::Pos2::new(x, rect.top()), egui::Pos2::new(x, rect.bottom())],
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(48))
-                        );
-                    }
-
-                    // Draw sample clips with enhanced editing features
-                    if track_num == 0 {
-                        // Kick clip with editing controls
-                        let clip_rect = egui::Rect::from_min_size(
-                            egui::Pos2::new(rect.left() + 25.0, rect.top() + 10.0),
-                            egui::Vec2::new(75.0, 50.0)
-                        );
-                        ui.painter().rect_filled(clip_rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(100, 150, 200));
-                        ui.painter().rect_stroke(clip_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
-                        ui.painter().text(
-                            clip_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Kick",
-                            egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
-                        );
-
-                        // Clip editing controls (hover overlay)
-                        let control_rect = egui::Rect::from_min_size(
-                            egui::Pos2::new(clip_rect.right() - 60.0, clip_rect.top() - 20.0),
-                            egui::Vec2::new(60.0, 15.0)
-                        );
-                        ui.painter().rect_filled(control_rect, egui::Rounding::same(2.0), egui::Color32::from_rgba_premultiplied(0, 0, 0, 180));
-                        ui.painter().text(
-                            control_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "✂️📋🗑️",
-                            egui::FontId::proportional(10.0),
-                            egui::Color32::WHITE
-                        );
-
-                        // Snare clip
-                        let snare_rect = egui::Rect::from_min_size(
-                            egui::Pos2::new(rect.left() + 125.0, rect.top() + 10.0),
-                            egui::Vec2::new(75.0, 50.0)
-                        );
-                        ui.painter().rect_filled(snare_rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(200, 100, 100));
-                        ui.painter().rect_stroke(snare_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
-                        ui.painter().text(
-                            snare_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Snare",
-                            egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
-                        );
-                    }
-
-                    if track_num == 1 {
-                        // Bass line clip with fade handles
-                        let bass_rect = egui::Rect::from_min_size(
-                            egui::Pos2::new(rect.left() + 0.0, rect.top() + 10.0),
-                            egui::Vec2::new(200.0, 50.0)
-                        );
-                        ui.painter().rect_filled(bass_rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(100, 200, 100));
-                        ui.painter().rect_stroke(bass_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
-                        ui.painter().text(
-                            bass_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Bass Line",
-                            egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
-                        );
-
-                        // Fade in/out handles
-                        let fade_in_handle = egui::Pos2::new(bass_rect.left() + 10.0, bass_rect.top() + 25.0);
-                        ui.painter().circle_filled(fade_in_handle, 4.0, egui::Color32::from_rgb(255, 255, 100));
-                        let fade_out_handle = egui::Pos2::new(bass_rect.right() - 10.0, bass_rect.top() + 25.0);
-                        ui.painter().circle_filled(fade_out_handle, 4.0, egui::Color32::from_rgb(255, 255, 100));
-                    }
-
-                    if track_num == 5 {
-                        // MIDI clip with piano roll preview
-                        let midi_rect = egui::Rect::from_min_size(
-                            egui::Pos2::new(rect.left() + 50.0, rect.top() + 10.0),
-                            egui::Vec2::new(150.0, 50.0)
-                        );
-                        ui.painter().rect_filled(midi_rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(150, 100, 200));
-                        ui.painter().rect_stroke(midi_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
-                        ui.painter().text(
-                            midi_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Chord Prog",
-                            egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
-                        );
-
-                        // Mini piano roll visualization
-                        for note in 0..8 {
-                            let note_y = midi_rect.top() + 5.0 + (note as f32 * 5.0);
-                            let note_width = 15.0 + (note as f32 * 2.0);
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_size(
-                                    egui::Pos2::new(midi_rect.left() + 10.0 + (note as f32 * 15.0), note_y),
-                                    egui::Vec2::new(note_width, 3.0)
-                                ),
-                                1.0,
-                                egui::Color32::from_rgb(255, 255, 255)
+                    // Draw clips for this track
+                    for clip in &state.clips {
+                        if clip.track_id == track.id {
+                            // Calculate clip position: 40px per second
+                            let clip_x = rect.left() + (clip.start_time as f32 * 40.0);
+                            let clip_width = clip.duration as f32 * 40.0;
+                            let clip_height = track.height - 20.0;
+                            
+                            let clip_rect = egui::Rect::from_min_size(
+                                egui::Pos2::new(clip_x, rect.top() + 10.0),
+                                egui::Vec2::new(clip_width, clip_height)
                             );
-                        }
-                    }
-
-                    // Automation lanes (if enabled)
-                    if state.show_automation {
-                        let automation_y = rect.top() + 70.0;
-                        ui.painter().line_segment(
-                            [egui::Pos2::new(rect.left(), automation_y), egui::Pos2::new(rect.right(), automation_y)],
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(150, 150, 150))
-                        );
-
-                        // Draw automation curves for this track
-                        for curve in &state.automation_curves {
-                            if curve.track_id == track_num {
-                                let mut points = Vec::new();
-                                for point in &curve.points {
-                                    let x = rect.left() + (point.time as f32 * 25.0 * state.timeline_zoom);
-                                    let y = automation_y - (point.value * 30.0); // Scale to fit lane
-                                    points.push(egui::Pos2::new(x, y));
-                                }
-
-                                // Draw curve segments
-                                for i in 0..points.len().saturating_sub(1) {
-                                    ui.painter().line_segment(
-                                        [points[i], points[i + 1]],
-                                        egui::Stroke::new(2.0, curve.color)
-                                    );
-                                }
-
-                                // Draw automation points
-                                for point in &points {
-                                    ui.painter().circle_filled(*point, 3.0, curve.color);
-                                }
+                            
+                            // Use clip color, brighten if playing
+                            let fill_color = if clip.is_playing {
+                                let r = ((clip.color.r() as f32 * 1.5).min(255.0)) as u8;
+                                let g = ((clip.color.g() as f32 * 1.5).min(255.0)) as u8;
+                                let b = ((clip.color.b() as f32 * 1.5).min(255.0)) as u8;
+                                egui::Color32::from_rgb(r, g, b)
+                            } else {
+                                clip.color
+                            };
+                            
+                            ui.painter().rect_filled(clip_rect, egui::Rounding::same(4.0), fill_color);
+                            ui.painter().rect_stroke(clip_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                            ui.painter().text(
+                                clip_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                &clip.name,
+                                egui::FontId::proportional(12.0),
+                                egui::Color32::BLACK
+                            );
+                            
+                            // Show node ID if linked
+                            if let Some(_node_id) = &clip.node_id {
+                                let node_label_pos = egui::Pos2::new(clip_rect.left() + 5.0, clip_rect.top() + 5.0);
+                                ui.painter().text(
+                                    node_label_pos,
+                                    egui::Align2::LEFT_TOP,
+                                    "🔗",
+                                    egui::FontId::proportional(10.0),
+                                    egui::Color32::YELLOW
+                                );
                             }
                         }
                     }
@@ -2297,7 +2208,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState, ui
 
 /// Draw Live View - Full Implementation
 /// Uses Bevy 0.17 render graph integration
-fn draw_live_view(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut LiveViewState) {
+fn draw_live_view(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut LiveViewState) {
     ui.heading("🎧 Live Performance View - CDJ-Inspired DJ Interface");
 
     // DJ Controls Header with enhanced features
@@ -2860,7 +2771,7 @@ fn draw_live_view(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut LiveVie
 
 /// Draw Node View - Full Implementation
 /// Uses Bevy 0.17 render graph integration
-fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut NodeViewState) {
+fn draw_node_view_full(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut NodeViewState) {
     ui.heading("🎛️ Node-Based Patching View - Modular Synthesis");
 
     // Enhanced Toolbar with categories
@@ -3052,7 +2963,6 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
     }
 
     // Handle mouse interactions for node selection and dragging
-    let mut dragged_node_id: Option<String> = None;
     if response.dragged() {
         if let Some(pointer_pos) = response.interact_pointer_pos() {
             let rel_x = pointer_pos.x - rect.left();
@@ -3066,7 +2976,6 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
                 );
                 
                 if node_rect.contains(egui::Pos2::new(rel_x, rel_y)) {
-                    dragged_node_id = Some(node.id.clone());
                     let drag_delta = response.drag_delta();
                     node.x += drag_delta.x;
                     node.y += drag_delta.y;
@@ -3111,8 +3020,11 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
         }
     }
     
-    // Track connection creation state
-    static mut CONNECTION_START: Option<(String, bool)> = None; // (node_id, is_from_output)
+    // Track connection creation state using thread_local for safety
+    use std::cell::RefCell;
+    thread_local! {
+        static CONNECTION_START: RefCell<Option<(String, bool)>> = RefCell::new(None);
+    }
     
     // Handle connection creation by dragging from ports
     if response.drag_started() {
@@ -3129,7 +3041,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
                 // Check output port (right side)
                 let output_pos = egui::Pos2::new(node_rect.right(), node_rect.center().y);
                 if (egui::Pos2::new(rel_x + rect.left(), rel_y + rect.top()) - output_pos).length() < 12.0 {
-                    unsafe { CONNECTION_START = Some((node.id.clone(), true)); }
+                    CONNECTION_START.with(|cs| *cs.borrow_mut() = Some((node.id.clone(), true)));
                     break;
                 }
             }
@@ -3138,8 +3050,8 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
     
     // Finish connection creation on drag release
     if response.drag_stopped() {
-        unsafe {
-            if let Some((start_node_id, is_from_output)) = CONNECTION_START.take() {
+        CONNECTION_START.with(|cs| {
+            if let Some((start_node_id, _is_from_output)) = cs.borrow_mut().take() {
                 if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
                     let rel_x = pointer_pos.x - rect.left();
                     let rel_y = pointer_pos.y - rect.top();
@@ -3171,12 +3083,12 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
                     }
                 }
             }
-        }
+        });
     }
     
     // Draw connection preview while dragging from port
-    unsafe {
-        if let Some((start_node_id, _)) = &CONNECTION_START {
+    CONNECTION_START.with(|cs| {
+        if let Some((start_node_id, _)) = cs.borrow().as_ref() {
             if let Some(start_node) = state.node_positions.iter().find(|n| &n.id == start_node_id) {
                 if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
                     let start_pos = egui::Pos2::new(
@@ -3209,7 +3121,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
                 }
             }
         }
-    }
+    });
     
     // Handle connection deletion on right-click
     if response.secondary_clicked() {
@@ -3275,7 +3187,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
         
         // Add pulsing glow for active nodes
         if is_active {
-            let pulse = (ui.input(|i| i.time as f32 * 3.0).sin() * 0.3 + 0.7);
+            let pulse = ui.input(|i| i.time as f32 * 3.0).sin() * 0.3 + 0.7;
             ui.painter().rect_stroke(node_rect.expand(4.0), egui::Rounding::same(8.0),
                 egui::Stroke::new(4.0 * pulse, egui::Color32::from_rgba_unmultiplied(0, 255, 128, (180.0 * pulse) as u8)));
         }
@@ -3745,6 +3657,110 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
     });
 }
 
+/// Spawn an audio node for a timeline clip
+fn spawn_node_for_clip(clip: &TimelineClip, node_state: &mut NodeViewState, _arrangement_state: &mut ArrangementViewState) -> String {
+    let node_id = format!("clip_{}_{}", clip.track_id, clip.id);
+    
+    // Determine node type based on clip
+    let node_type = if clip.audio_file.is_some() {
+        "generator.sampler" // Audio file playback
+    } else {
+        "generator.sine" // Default to sine for MIDI/empty clips
+    };
+    
+    // Position node based on track and time
+    let x = 200.0 + (clip.start_time as f32 * 20.0); // X based on time position
+    let y = 100.0 + (clip.track_id as f32 * 120.0);  // Y based on track number
+    
+    let parameters = vec![
+        NodeParameter { 
+            name: "Gain".to_string(), 
+            value: clip.gain, 
+            min: 0.0, 
+            max: 2.0, 
+            modulated: false 
+        },
+        NodeParameter { 
+            name: "Start".to_string(), 
+            value: clip.start_time as f32, 
+            min: 0.0, 
+            max: 1000.0, 
+            modulated: false 
+        },
+        NodeParameter { 
+            name: "Duration".to_string(), 
+            value: clip.duration as f32, 
+            min: 0.0, 
+            max: 1000.0, 
+            modulated: false 
+        },
+    ];
+    
+    node_state.node_positions.push(NodePosition {
+        id: node_id.clone(),
+        node_type: node_type.to_string(),
+        x,
+        y,
+        selected: false,
+        parameters,
+    });
+    
+    node_id
+}
+
+/// Update active nodes based on timeline playback position
+fn update_active_nodes(
+    arrangement_state: &ArrangementViewState, 
+    node_state: &mut NodeViewState,
+    current_time: f64
+) {
+    node_state.active_nodes.clear();
+    
+    // Check which clips are currently playing based on timeline position
+    for clip in &arrangement_state.clips {
+        let clip_end = clip.start_time + clip.duration;
+        
+        // If current time is within clip bounds and clip is marked as playing
+        if clip.is_playing && current_time >= clip.start_time && current_time < clip_end {
+            if let Some(node_id) = &clip.node_id {
+                node_state.active_nodes.push(node_id.clone());
+            }
+        }
+    }
+}
+
+/// Create a test clip in the timeline with linked node
+fn create_test_clip(
+    track_id: usize, 
+    start_time: f64, 
+    duration: f64,
+    arrangement_state: &mut ArrangementViewState,
+    node_state: &mut NodeViewState
+) {
+    let clip_id = format!("clip_{}_{}", track_id, arrangement_state.clips.len());
+    
+    let mut clip = TimelineClip {
+        id: clip_id.clone(),
+        name: format!("Clip {}", arrangement_state.clips.len() + 1),
+        track_id,
+        start_time,
+        duration,
+        color: egui::Color32::from_rgb(100 + (track_id * 30) as u8, 150, 200),
+        audio_file: None, // No audio file for test
+        node_id: None,
+        is_playing: false, // Will be set based on transport
+        gain: 0.8,
+        fade_in: 0.1,
+        fade_out: 0.1,
+    };
+    
+    // Spawn corresponding node
+    let node_id = spawn_node_for_clip(&clip, node_state, arrangement_state);
+    clip.node_id = Some(node_id);
+    
+    arrangement_state.clips.push(clip);
+}
+
 /// Helper function to add a node to the canvas
 fn add_node_to_canvas(state: &mut NodeViewState, name: &str, node_type: &str) {
     let id = format!("{}_{}", name.to_lowercase().replace(" ", "_"), state.node_positions.len());
@@ -3780,6 +3796,7 @@ fn add_node_to_canvas(state: &mut NodeViewState, name: &str, node_type: &str) {
 }
 
 /// Helper function to add a preset to the canvas
+#[allow(dead_code)]
 fn add_preset_to_canvas(state: &mut NodeViewState, preset: &NodePreset) {
     let id = format!("{}_{}", preset.name.to_lowercase().replace(" ", "_"), state.node_positions.len());
     let x = 200.0 + (state.node_positions.len() as f32 * 50.0);

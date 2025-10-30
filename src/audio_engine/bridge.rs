@@ -4,7 +4,7 @@
 /// the UI thread and the audio processing thread using crossbeam channels
 /// for thread-safe, non-blocking message passing.
 
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender, select};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -363,7 +363,7 @@ fn generate_test_spectrum() -> Vec<f32> {
         .as_secs_f64();
     
     for i in 0..256 {
-        let freq = i as f32 * 20.0; // 20Hz to ~5kHz range
+        let _freq = i as f32 * 20.0; // 20Hz to ~5kHz range
         
         // Generate a complex spectrum with multiple harmonics
         let fundamental = (2.0 * std::f64::consts::PI * 220.0 * time).sin() as f32 * 0.3;
@@ -413,7 +413,7 @@ pub fn build_hexodsp_engine() -> Result<super::HexoDSPEngine, Box<dyn std::error
 }
 
 /// Audio processing loop for integration with the engine
-pub fn audio_processing_loop<F>(mut processor: F) -> !
+pub fn audio_processing_loop<F>(_processor: F) -> !
 where
     F: FnMut(AudioParamMessage) + Send + 'static,
 {

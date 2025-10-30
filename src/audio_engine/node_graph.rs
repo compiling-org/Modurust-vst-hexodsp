@@ -4,7 +4,7 @@
 /// DSP modules and manages audio flow, including topological sorting for
 /// optimal processing order.
 
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, VecDeque};
 use super::dsp_core::{DSPModule, Oscillator, Filter, Delay, Reverb};
 
 /// Node types for the audio graph
@@ -30,7 +30,7 @@ pub struct NodeConnection {
 }
 
 /// Individual node in the graph
-struct GraphNode {
+pub(crate) struct GraphNode {
     id: usize,
     node_type: NodeType,
     parameters: HashMap<String, f32>,
@@ -186,7 +186,7 @@ impl NodeGraph {
     }
     
     /// Add a mixer node
-    pub fn add_mixer(&mut self, inputs: usize) -> usize {
+    pub fn add_mixer(&mut self, _inputs: usize) -> usize {
         let id = self.nodes.len();
         let node = GraphNode {
             id,
@@ -354,7 +354,7 @@ impl NodeGraph {
     }
     
     /// Apply node-specific processing (like applying track volumes)
-    fn apply_node_processing(&mut self, node_id: usize, buffer: &[f32]) {
+    fn apply_node_processing(&mut self, node_id: usize, _buffer: &[f32]) {
         // This is where we would apply track volumes, automation, etc.
         // For now, just placeholder
         if let Some(node) = self.nodes.get(&node_id) {
@@ -477,7 +477,8 @@ impl NodeGraph {
     }
     
     /// Get node information
-    pub fn get_node_info(&self, node_id: usize) -> Option<&GraphNode> {
+    #[allow(dead_code)]
+    pub(crate) fn get_node_info(&self, node_id: usize) -> Option<&GraphNode> {
         self.nodes.get(&node_id)
     }
     

@@ -3,7 +3,7 @@
 /// This is the main entry point for the HexoDSP Digital Audio Workstation,
 /// integrating the eframe UI with the real-time audio engine.
 
-use hexodsp_daw::{HexoDSPApp, run_hexodsp_ui};
+use hexodsp_daw::run_hexodsp_ui;
 use hexodsp_daw::audio_engine::HexoDSPEngine;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

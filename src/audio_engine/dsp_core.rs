@@ -359,7 +359,7 @@ impl DSPModule for Delay {
 
 /// Reverb implementation (simplified Schroeder reverb)
 pub struct Reverb {
-    sample_rate: f32,
+    _sample_rate: f32,
     room_size: f32,
     damping: f32,
     mix: f32,
@@ -391,7 +391,7 @@ impl Reverb {
         ];
         
         Self {
-            sample_rate,
+            _sample_rate: sample_rate,
             room_size: 1.0,
             damping: 0.5,
             mix: 0.3,
@@ -478,7 +478,7 @@ impl DSPModule for Reverb {
 /// Main DSP processing core
 pub struct DSPCore {
     sample_rate: u32,
-    buffer_size: usize,
+    _buffer_size: usize,
     nodes: Vec<Box<dyn DSPModule>>,
 }
 
@@ -486,7 +486,7 @@ impl DSPCore {
     pub fn new(sample_rate: u32, buffer_size: u32) -> Self {
         Self {
             sample_rate,
-            buffer_size: buffer_size as usize,
+            _buffer_size: buffer_size as usize,
             nodes: Vec::new(),
         }
     }

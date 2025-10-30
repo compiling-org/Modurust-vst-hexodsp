@@ -9,10 +9,9 @@ pub mod node_graph;
 pub mod transport;
 pub mod bridge;
 
-use cpal_io::{AudioIO, AudioDevice, AudioConfig};
-use dsp_core::{DSPModule, Oscillator, Filter, Delay, Reverb};
-use node_graph::{NodeGraph, NodeConnection, AudioFlow};
-use transport::{Transport, Clock, Tempo};
+use cpal_io::AudioIO;
+use node_graph::NodeGraph;
+use transport::Transport;
 use bridge::{AudioEngineBridge, AudioParamMessage, AudioEngineState};
 
 /// Main audio engine structure that coordinates all audio processing
@@ -116,7 +115,7 @@ impl HexoDSPEngine {
         
         // Send state back to UI
         if self.bridge.should_send_feedback() {
-            self.bridge.send_feedback(self.processing_state.clone());
+            let _ = self.bridge.send_feedback(self.processing_state.clone());
         }
     }
     

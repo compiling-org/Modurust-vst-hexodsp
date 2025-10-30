@@ -3,7 +3,7 @@
 /// This module provides the master clock for DAW operations including
 /// transport controls, tempo management, and sample-accurate timing.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Tempo information
 #[derive(Debug, Clone, Copy)]
@@ -261,8 +261,8 @@ pub struct Transport {
     loop_enabled: bool,
     loop_start_samples: u64,
     loop_end_samples: u64,
-    punch_in_enabled: bool,
-    punch_out_enabled: bool,
+    _punch_in_enabled: bool,
+    _punch_out_enabled: bool,
     metronome_enabled: bool,
     external_sync_enabled: bool,
 }
@@ -276,8 +276,8 @@ impl Transport {
             loop_enabled: false,
             loop_start_samples: 0,
             loop_end_samples: 0,
-            punch_in_enabled: false,
-            punch_out_enabled: false,
+            _punch_in_enabled: false,
+            _punch_out_enabled: false,
             metronome_enabled: false,
             external_sync_enabled: false,
         }

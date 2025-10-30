@@ -3,11 +3,10 @@
 /// This module handles low-latency audio device communication,
 /// supporting ASIO, WASAPI, CoreAudio, and other native APIs.
 
-use cpal::{Device, Host, Stream, StreamConfig, Sample, SampleFormat, InputCallbackInfo, OutputCallbackInfo};
+use cpal::{Device, Host, Stream, StreamConfig, SampleFormat, InputCallbackInfo, OutputCallbackInfo};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::collections::HashMap;
 
 /// Audio configuration structure
 #[derive(Debug, Clone)]
