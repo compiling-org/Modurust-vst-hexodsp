@@ -8,6 +8,7 @@ pub mod dsp_core;
 pub mod node_graph;
 pub mod transport;
 pub mod bridge;
+pub mod node_instance_manager;
 
 use cpal_io::AudioIO;
 use node_graph::NodeGraph;

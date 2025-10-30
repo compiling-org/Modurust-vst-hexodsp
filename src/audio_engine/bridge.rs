@@ -45,11 +45,13 @@ pub enum AudioParamMessage {
     TrackEffect(usize, usize, String), // (track, effect_slot, effect_type)
     
     // Node graph control
-    AddNode(String, String), // (node_type, node_id)
-    RemoveNode(usize),
-    ConnectNodes(usize, usize, String, String), // (from, to, from_port, to_port)
+    CreateNode(String, String), // (node_type, ui_node_id) - Returns audio_node_id
+    DeleteNode(String), // (ui_node_id)
+    ConnectNodes(String, String, String, String), // (from_ui_id, to_ui_id, from_port, to_port)
+    DisconnectNodes(String, String), // (from_ui_id, to_ui_id)
+    SetNodeParameter(String, String, f32), // (ui_node_id, param_name, value)
     
-    // Generic parameter
+    // Generic parameter (deprecated - use SetNodeParameter)
     SetParameter(String, f32),
     
     // System messages
@@ -83,6 +85,11 @@ pub struct AudioEngineState {
     
     // Real-time parameter values
     pub current_params: HashMap<String, f32>,
+    
+    // Node graph state
+    pub active_nodes: Vec<String>, // UI node IDs currently processing audio
+    pub node_levels: HashMap<String, f32>, // UI node ID -> output level
+    pub node_to_audio_map: HashMap<String, usize>, // UI node ID -> Audio node ID
 }
 
 /// Bridge configuration
