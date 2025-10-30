@@ -64,8 +64,11 @@ impl HexoDSPEngine {
         // Initialize audio processing pipeline
         self.setup_default_graph()?;
         
-        // Start the audio I/O system
-        self.audio_io.start()?;
+        // Start the audio I/O system with a dummy callback
+        // TODO: Implement proper audio processing callback that uses process_audio()
+        self.audio_io.start(|_data, _info| {
+            // Placeholder callback - actual processing will be integrated later
+        })?;
         
         println!("✅ HexoDSP Audio Engine started successfully");
         Ok(())

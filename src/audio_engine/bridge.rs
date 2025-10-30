@@ -189,6 +189,15 @@ impl AudioEngineBridge {
         self.last_feedback_time.elapsed() >= self.feedback_interval
     }
     
+    /// Check if UI should update (alias for should_send_feedback for UI compatibility)
+    pub fn should_update_ui(&mut self) -> bool {
+        let should_update = self.last_feedback_time.elapsed() >= self.feedback_interval;
+        if should_update {
+            self.last_feedback_time = Instant::now();
+        }
+        should_update
+    }
+    
     /// Update feedback timestamp
     pub fn update_feedback_time(&mut self) {
         self.last_feedback_time = Instant::now();
@@ -280,16 +289,18 @@ impl AudioEngineBridge {
             let timeout = Duration::from_secs(2);
             let start = Instant::now();
             
-            while start.elapsed() < timeout {
-                if handle.is_finished() {
-                    handle.join().unwrap();
+            loop {
+                if start.elapsed() >= timeout {
+                    eprintln!("⚠️ Audio thread did not stop within timeout");
                     break;
                 }
+                
+                if handle.is_finished() {
+                    let _ = handle.join();
+                    break;
+                }
+                
                 thread::sleep(Duration::from_millis(10));
-            }
-            
-            if !handle.is_finished() {
-                eprintln!("⚠️ Audio thread did not stop gracefully");
             }
         }
         

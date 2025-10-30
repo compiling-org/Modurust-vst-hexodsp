@@ -30,4 +30,3 @@ pub use eframe_ui::NodeParameter;
 pub use eframe_ui::NodePreset;
 pub use eframe_ui::NuweShader;
 pub use eframe_ui::ISFPlugin;
-pub use eframe_ui::HexoDSPUiPlugin;

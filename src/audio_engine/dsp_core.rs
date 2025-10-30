@@ -153,7 +153,7 @@ impl Filter {
             resonance: 0.7,
             filter_type: FilterType::LowPass,
             x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0,
-            b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0,
+            b0: 1.0, b1: 0.0, b2: 0.0, a0: 1.0, a1: 0.0, a2: 0.0,
         };
         filter.update_coeffs();
         filter
@@ -377,16 +377,18 @@ impl Reverb {
         let comb_delays = [1116, 1188, 1277, 1356];
         let comb_feedbacks = [0.84, 0.84, 0.84, 0.84];
         
-        let mut comb_buffers = [Vec::new(); 4];
-        for (i, &delay) in comb_delays.iter().enumerate() {
-            comb_buffers[i] = vec![0.0; delay];
-        }
+        let comb_buffers = [
+            vec![0.0; comb_delays[0]],
+            vec![0.0; comb_delays[1]],
+            vec![0.0; comb_delays[2]],
+            vec![0.0; comb_delays[3]],
+        ];
         
         let allpass_delays = [556, 441];
-        let mut allpass_buffers = [Vec::new(); 2];
-        for (i, &delay) in allpass_delays.iter().enumerate() {
-            allpass_buffers[i] = vec![0.0; delay];
-        }
+        let allpass_buffers = [
+            vec![0.0; allpass_delays[0]],
+            vec![0.0; allpass_delays[1]],
+        ];
         
         Self {
             sample_rate,

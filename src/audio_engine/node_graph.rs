@@ -30,12 +30,22 @@ pub struct NodeConnection {
 }
 
 /// Individual node in the graph
-#[derive(Debug)]
 struct GraphNode {
     id: usize,
     node_type: NodeType,
     parameters: HashMap<String, f32>,
     dsp_module: Option<Box<dyn DSPModule>>,
+}
+
+impl std::fmt::Debug for GraphNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphNode")
+            .field("id", &self.id)
+            .field("node_type", &self.node_type)
+            .field("parameters", &self.parameters)
+            .field("dsp_module", &self.dsp_module.as_ref().map(|_| "<DSPModule>"))
+            .finish()
+    }
 }
 
 /// Node processing state
@@ -271,25 +281,39 @@ impl NodeGraph {
         
         // Process nodes in topological order
         for &node_id in &processing_order {
-            if let Some(node) = self.nodes.get_mut(&node_id) {
+            // First, collect inputs from connections (requires immutable borrow)
+            {
                 let node_state = node_states.get_mut(&node_id).unwrap();
                 
                 // Clear input buffer
                 node_state.input_buffer.fill(0.0);
-                
-                // Collect inputs from connections
-                for connection in &self.connections {
-                    if connection.to_node == node_id && connection.to_port == "audio_in" {
-                        if let Some(source_state) = node_states.get(&connection.from_node) {
-                            // Mix the source into this node's input
-                            for (i, &sample) in source_state.output_buffer.iter().enumerate() {
-                                if i < node_state.input_buffer.len() {
-                                    node_state.input_buffer[i] += sample;
-                                }
-                            }
+            }
+            
+            // Collect inputs from connections (separate scope for borrow checker)
+            // First collect all source buffers we need
+            let mut input_buffers = Vec::new();
+            for connection in &self.connections {
+                if connection.to_node == node_id && connection.to_port == "audio_in" {
+                    if let Some(source_state) = node_states.get(&connection.from_node) {
+                        input_buffers.push(source_state.output_buffer.clone());
+                    }
+                }
+            }
+            
+            // Now mix all inputs into the node's input buffer
+            if let Some(node_state) = node_states.get_mut(&node_id) {
+                for input_buffer_data in input_buffers {
+                    for (i, &sample) in input_buffer_data.iter().enumerate() {
+                        if i < node_state.input_buffer.len() {
+                            node_state.input_buffer[i] += sample;
                         }
                     }
                 }
+            }
+            
+            // Process the node
+            if let Some(node) = self.nodes.get_mut(&node_id) {
+                let node_state = node_states.get_mut(&node_id).unwrap();
                 
                 // Add external input if this is an input node
                 if node.node_type == NodeType::Input {
@@ -304,10 +328,11 @@ impl NodeGraph {
                     // For non-DSP nodes (mixers, etc.), just pass through
                     node_state.output_buffer.copy_from_slice(&node_state.input_buffer);
                 }
-                
-                // Apply node-specific processing
-                self.apply_node_processing(node_id, &node_state.output_buffer);
             }
+            
+            // Apply node-specific processing
+            let node_state = node_states.get(&node_id).unwrap();
+            self.apply_node_processing(node_id, &node_state.output_buffer);
         }
         
         // Get final output from output node or last node

@@ -73,6 +73,9 @@ impl AudioIO {
                 dev
             });
 
+        let buffer_size = config.buffer_size;
+        let sample_rate = config.sample_rate;
+        
         Ok(Self {
             host,
             input_device,
@@ -81,8 +84,8 @@ impl AudioIO {
             input_stream: None,
             output_stream: None,
             running: Arc::new(AtomicBool::new(false)),
-            buffer_size: config.buffer_size,
-            sample_rate: config.sample_rate,
+            buffer_size,
+            sample_rate,
         })
     }
     
@@ -129,9 +132,9 @@ impl AudioIO {
     
     /// Set audio configuration
     pub fn set_config(&mut self, config: AudioConfig) -> Result<(), Box<dyn std::error::Error>> {
-        self.config = config;
         self.buffer_size = config.buffer_size;
         self.sample_rate = config.sample_rate;
+        self.config = config;
         Ok(())
     }
     
@@ -151,7 +154,7 @@ impl AudioIO {
     }
     
     /// Start audio streams with callback
-    pub fn start<F>(&mut self, input_callback: F) -> Result<(), Box<dyn std::error::Error>>
+    pub fn start<F>(&mut self, mut input_callback: F) -> Result<(), Box<dyn std::error::Error>>
     where
         F: FnMut(&[f32], &cpal::InputCallbackInfo) + Send + 'static,
     {
@@ -179,8 +182,8 @@ impl AudioIO {
                 // Generate test tone (sine wave)
                 let sample_rate = 44100.0;
                 let freq = 440.0; // A4
-                let time = std::time::Instant::now();
-                let elapsed = time.duration_since(std::time::UNIX_EPOCH);
+                let time = std::time::SystemTime::now();
+                let elapsed = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                 let seconds = elapsed.as_secs_f64();
                 
                 for (i, sample) in data.iter_mut().enumerate() {
@@ -193,6 +196,7 @@ impl AudioIO {
                 &config,
                 output_callback,
                 |err| eprintln!("Output stream error: {}", err),
+                None, // timeout
             )?;
             
             self.output_stream = Some(stream);
@@ -216,6 +220,7 @@ impl AudioIO {
                 &config,
                 input_callback,
                 |err| eprintln!("Input stream error: {}", err),
+                None, // timeout
             )?;
             
             self.input_stream = Some(stream);
@@ -264,18 +269,24 @@ impl AudioIO {
             .as_ref()
             .ok_or("No output device available")?;
             
-        let config = device.default_output_config()?;
-        let sample_format = config.sample_format();
+        let default_config = device.default_output_config()?;
+        let sample_format = default_config.sample_format();
         
         // Convert to our format if needed
         if !matches!(sample_format, SampleFormat::F32) {
             println!("⚠️ Device uses {:?}, converting to F32", sample_format);
         }
         
+        // Use device's default sample rate and channels to avoid StreamConfigNotSupported
+        let sample_rate = default_config.sample_rate();
+        let channels = default_config.channels();
+        
+        println!("🎛️ Using output config: {} Hz, {} channels", sample_rate.0, channels);
+        
         Ok(StreamConfig {
-            channels: self.config.channels,
-            sample_rate: cpal::SampleRate(self.config.sample_rate),
-            buffer_size: cpal::BufferSize::Fixed(self.config.buffer_size),
+            channels,
+            sample_rate,
+            buffer_size: cpal::BufferSize::Default, // Use device default buffer size
         })
     }
     
@@ -285,18 +296,24 @@ impl AudioIO {
             .as_ref()
             .ok_or("No input device available")?;
             
-        let config = device.default_input_config()?;
-        let sample_format = config.sample_format();
+        let default_config = device.default_input_config()?;
+        let sample_format = default_config.sample_format();
         
         // Convert to our format if needed
         if !matches!(sample_format, SampleFormat::F32) {
             println!("⚠️ Device uses {:?}, converting to F32", sample_format);
         }
         
+        // Use device's default sample rate and channels to avoid StreamConfigNotSupported
+        let sample_rate = default_config.sample_rate();
+        let channels = default_config.channels();
+        
+        println!("🎛️ Using input config: {} Hz, {} channels", sample_rate.0, channels);
+        
         Ok(StreamConfig {
-            channels: self.config.channels,
-            sample_rate: cpal::SampleRate(self.config.sample_rate),
-            buffer_size: cpal::BufferSize::Fixed(self.config.buffer_size),
+            channels,
+            sample_rate,
+            buffer_size: cpal::BufferSize::Default, // Use device default buffer size
         })
     }
     
