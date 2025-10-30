@@ -10,12 +10,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎵 Starting HexoDSP DAW - Revolutionary Node-Based Audio Workstation");
     println!("==========================================");
     
-    // Initialize the audio engine
+    // Initialize the audio engine (but don't start it)
     println!("🎛️ Initializing audio engine...");
     let mut audio_engine = HexoDSPEngine::new()?;
     
-    // Start the audio engine
-    audio_engine.start()?;
+    // Don't start audio automatically - user can start it via UI
+    // audio_engine.start()?;
     
     // Create a shared reference to the audio engine for the UI
     // Note: In a production implementation, this would be managed more carefully

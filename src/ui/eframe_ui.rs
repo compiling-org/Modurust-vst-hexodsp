@@ -1320,7 +1320,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                         ui.horizontal(|ui| {
                                             ui.label("Preset:");
                                             let mut preset = "Vocal Bright";
-                                            egui::ComboBox::from_label("")
+                                            egui::ComboBox::from_label(format!("##eq_preset_{}", i))
                                                 .selected_text(preset)
                                                 .show_ui(ui, |ui| {
                                                     ui.selectable_value(&mut preset, "Vocal Bright", "Vocal Bright");
@@ -1534,7 +1534,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.horizontal(|ui| {
                                         ui.label("To:");
                                         let mut send_dest = "Master";
-                                        egui::ComboBox::from_label("")
+                                        egui::ComboBox::from_label(format!("##return_send_{}", i))
                                             .selected_text(send_dest)
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut send_dest, "Master", "Master");
@@ -1927,7 +1927,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState, ui
                     ui.label("Input:");
                     let input_idx = track_num % state.track_inputs.len();
                     let mut input_source = state.track_inputs.get(input_idx).cloned().unwrap_or("None".to_string());
-                    egui::ComboBox::from_label("")
+                    egui::ComboBox::from_label(format!("##track_input_{}", track_num))
                         .selected_text(&input_source)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut input_source, "Mic 1".to_string(), "Mic 1");
@@ -2799,7 +2799,7 @@ fn draw_live_view(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut LiveVie
         ui.horizontal(|ui| {
             ui.label("Sidechain Key:");
             let mut key = state.sidechain_key.clone();
-            egui::ComboBox::from_label("")
+            egui::ComboBox::from_label("##sidechain_key")
                 .selected_text(&key)
                 .show_ui(ui, |ui| {
                     for option in ["Kick", "Snare", "Bass", "Master"].iter() {
@@ -3417,7 +3417,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
             ui.checkbox(&mut auto_latency, "Auto");
             ui.label("Processing:");
             let mut processing_mode = "Real-time";
-            egui::ComboBox::from_label("")
+            egui::ComboBox::from_label("##fx_processing")
                 .selected_text(processing_mode)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut processing_mode, "Real-time", "Real-time");
@@ -3544,7 +3544,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
                         3 => "Reverb",
                         _ => "None",
                     };
-                    egui::ComboBox::from_label("")
+                    egui::ComboBox::from_label(format!("##fx_send_{}", send))
                         .selected_text(send_dest)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut send_dest, "Chorus", "Chorus");
@@ -3609,7 +3609,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
             ui.horizontal(|ui| {
                 ui.label("Source:");
                 let mut mod_source = "LFO";
-                egui::ComboBox::from_label("")
+                egui::ComboBox::from_label("##fx_mod_source")
                     .selected_text(mod_source)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut mod_source, "LFO", "LFO");
@@ -3620,7 +3620,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
 
                 ui.label("Target:");
                 let mut mod_target = "Reverb Mix";
-                egui::ComboBox::from_label("")
+                egui::ComboBox::from_label("##fx_mod_target")
                     .selected_text(mod_target)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut mod_target, "Reverb Mix", "Reverb Mix");
@@ -3640,7 +3640,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
             ui.horizontal(|ui| {
                 ui.label("Chain Preset:");
                 let mut preset = "Mastering Chain";
-                egui::ComboBox::from_label("")
+                egui::ComboBox::from_label("##fx_chain_preset")
                     .selected_text(preset)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut preset, "Mastering Chain", "Mastering Chain");
@@ -3663,7 +3663,7 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
             ui.horizontal(|ui| {
                 ui.label("Sidechain Key:");
                 let mut key_source = "Kick";
-                egui::ComboBox::from_label("")
+                egui::ComboBox::from_label("##fx_sidechain_key")
                     .selected_text(key_source)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut key_source, "Kick", "Kick");
