@@ -22,6 +22,9 @@ pub mod ui;
 // Audio engine module - real-time audio processing and DSP
 pub mod audio_engine;
 
+// Preset system - library of pre-configured nodes and patches
+pub mod presets;
+
 // Re-exports for convenience
 pub use ui::*;
 
