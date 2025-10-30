@@ -170,6 +170,7 @@ impl NodePreset {
 }
 
 /// Preset library that holds all available presets
+#[derive(Clone)]
 pub struct PresetLibrary {
     presets: Vec<NodePreset>,
     by_category: HashMap<PresetCategory, Vec<usize>>,

@@ -564,6 +564,11 @@ pub struct NodeViewState {
     pub isf_plugins: Vec<ISFPlugin>,
     pub current_category_filter: String,
     pub active_nodes: Vec<String>, // Nodes currently processing audio from timeline
+    // Preset system integration
+    pub preset_library: Option<crate::presets::PresetLibrary>,
+    pub preset_search: String,
+    pub selected_preset: Option<crate::presets::NodePreset>,
+    pub dragging_preset: Option<crate::presets::NodePreset>,
 }
 
 impl Default for NodeViewState {
@@ -587,6 +592,10 @@ impl Default for NodeViewState {
             isf_plugins: Vec::new(),
             current_category_filter: "All".to_string(),
             active_nodes: Vec::new(),
+            preset_library: None, // Lazy initialized
+            preset_search: String::new(),
+            selected_preset: None,
+            dragging_preset: None,
         }
     }
 }
@@ -808,25 +817,59 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
     // Side panels
     if ui_state.show_browser {
         egui::SidePanel::left("browser").show(ctx, |ui| {
-            ui.set_min_width(200.0);
-            ui.heading("Browser");
-
-            ui.collapsing("Audio Files", |ui| {
-                ui.label("Track 1.wav");
-                ui.label("Bass Loop.mp3");
-                ui.label("Drum Pattern.wav");
+            ui.set_min_width(250.0);
+            ui.heading("📁 Browser");
+            
+            // Search box
+            ui.horizontal(|ui| {
+                ui.label("🔍");
+                ui.text_edit_singleline(&mut node_state.preset_search);
             });
-
-            ui.collapsing("MIDI Files", |ui| {
-                ui.label("Chord Progression.mid");
-                ui.label("Arpeggio Pattern.mid");
-            });
-
-            ui.collapsing("Presets", |ui| {
-                ui.label("Synth Lead");
-                ui.label("Bass House");
-                ui.label("Ambient Pad");
-            });
+            ui.separator();
+            
+            // Initialize preset library if needed
+            if node_state.preset_library.is_none() {
+                node_state.preset_library = Some(crate::presets::PresetLibrary::new());
+            }
+            
+            if let Some(library) = &node_state.preset_library {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // Display presets by category
+                    for category in library.categories() {
+                        ui.collapsing(format!("{} {}", category.icon(), category.name()), |ui| {
+                            let presets = if node_state.preset_search.is_empty() {
+                                library.by_category(&category)
+                            } else {
+                                library.search(&node_state.preset_search)
+                                    .into_iter()
+                                    .filter(|p| p.category == category)
+                                    .collect()
+                            };
+                            
+                            for preset in &presets {
+                                let mut response = ui.selectable_label(false, &preset.name);
+                                
+                                // Tooltip showing description
+                                response = response.on_hover_text(&preset.description);
+                                
+                                // Handle drag-and-drop
+                                if response.clicked() {
+                                    node_state.selected_preset = Some((*preset).clone());
+                                }
+                                
+                                // Start drag operation
+                                if response.drag_started() {
+                                    node_state.dragging_preset = Some((*preset).clone());
+                                }
+                            }
+                            
+                            if presets.is_empty() {
+                                ui.label("No presets found");
+                            }
+                        });
+                    }
+                });
+            }
         });
     }
 
@@ -2962,6 +3005,51 @@ fn draw_node_view_full(ui: &mut egui::Ui, _ui_state: &mut UiState, state: &mut N
         }
     }
 
+    // Handle preset drop from browser onto canvas
+    if response.hovered() && state.dragging_preset.is_some() {
+        // Show drop indicator
+        if let Some(pointer_pos) = response.hover_pos() {
+            let drop_x = pointer_pos.x - rect.left();
+            let drop_y = pointer_pos.y - rect.top();
+            
+            // Draw drop preview
+            let preview_rect = egui::Rect::from_min_size(
+                egui::Pos2::new(rect.left() + drop_x - 70.0, rect.top() + drop_y - 50.0),
+                egui::Vec2::new(140.0, 100.0)
+            );
+            ui.painter().rect_stroke(
+                preview_rect,
+                egui::Rounding::same(6.0),
+                egui::Stroke::new(3.0, egui::Color32::from_rgba_unmultiplied(100, 200, 100, 180))
+            );
+        }
+    }
+    
+    // Handle drop
+    if response.hovered() && ui.input(|i| i.pointer.any_released()) {
+        if let Some(preset) = state.dragging_preset.take() {
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let drop_x = pointer_pos.x - rect.left();
+                let drop_y = pointer_pos.y - rect.top();
+                
+                // Snap to grid if enabled
+                let final_x = if state.grid_snap {
+                    (drop_x / 20.0).round() * 20.0
+                } else {
+                    drop_x
+                };
+                let final_y = if state.grid_snap {
+                    (drop_y / 20.0).round() * 20.0
+                } else {
+                    drop_y
+                };
+                
+                // Instantiate preset on canvas
+                instantiate_preset_on_canvas(state, &preset, final_x - 70.0, final_y - 50.0);
+            }
+        }
+    }
+    
     // Handle mouse interactions for node selection and dragging
     if response.dragged() {
         if let Some(pointer_pos) = response.interact_pointer_pos() {
@@ -3903,6 +3991,59 @@ fn add_instrument_preset(state: &mut NodeViewState, instrument_type: &str) {
         }
         _ => {}
     }
+}
+
+/// Instantiate a preset from the browser onto the node canvas
+fn instantiate_preset_on_canvas(state: &mut NodeViewState, preset: &crate::presets::NodePreset, base_x: f32, base_y: f32) {
+    // Map to convert preset node IDs to canvas node IDs
+    let mut id_map = std::collections::HashMap::new();
+    
+    // Create all nodes from preset
+    for preset_node in &preset.nodes {
+        let canvas_id = format!("{}_{}", preset_node.id, state.node_positions.len());
+        let x = base_x + preset_node.position.0;
+        let y = base_y + preset_node.position.1;
+        
+        // Convert preset parameters to canvas parameters
+        let parameters: Vec<NodeParameter> = preset_node.parameters.iter().map(|p| NodeParameter {
+            name: p.name.clone(),
+            value: p.value,
+            min: p.min,
+            max: p.max,
+            modulated: false,
+        }).collect();
+        
+        state.node_positions.push(NodePosition {
+            id: canvas_id.clone(),
+            node_type: preset_node.node_type.clone(),
+            x,
+            y,
+            selected: false,
+            parameters,
+        });
+        
+        id_map.insert(preset_node.id.clone(), canvas_id);
+    }
+    
+    // Create all connections from preset
+    for preset_conn in &preset.connections {
+        if let (Some(from_id), Some(to_id)) = (
+            id_map.get(&preset_conn.from_node),
+            id_map.get(&preset_conn.to_node)
+        ) {
+            state.connections.push(NodeConnection {
+                id: format!("conn_{}_{}", state.connections.len(), from_id),
+                from_node: from_id.clone(),
+                from_port: preset_conn.from_port.clone(),
+                to_node: to_id.clone(),
+                to_port: preset_conn.to_port.clone(),
+                data_type: "audio".to_string(),
+            });
+        }
+    }
+    
+    println!("✅ Instantiated preset '{}' with {} nodes and {} connections", 
+        preset.name, preset.nodes.len(), preset.connections.len());
 }
 
 /// Helper function to calculate distance from point to line segment
