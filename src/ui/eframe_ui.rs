@@ -144,6 +144,10 @@ pub struct ChannelState {
     pub phase: bool,
     pub eq_on: bool,
     pub eq_type: String,
+    pub eq_low_band_on: bool,
+    pub eq_lm_band_on: bool,
+    pub eq_hm_band_on: bool,
+    pub eq_high_band_on: bool,
     pub eq_low_gain: f32,
     pub eq_low_freq: f32,
     pub eq_low_slope: f32,
@@ -175,8 +179,12 @@ impl Default for ChannelState {
             phase: false,
             eq_on: true,
             eq_type: "Parametric".to_string(),
+            eq_low_band_on: true,
+            eq_lm_band_on: true,
+            eq_hm_band_on: true,
+            eq_high_band_on: true,
             // --- EXPLICIT EQ FIELD DEFAULTS ---
-            eq_low_gain: 0.0,      // Neutral gain
+            eq_low_gain: 0.0,
             eq_low_freq: 80.0,      // Low shelf frequency
             eq_low_slope: 0.707,    // Gentle slope
             eq_lm_gain: 0.0,        // Neutral gain
@@ -926,8 +934,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.label("Low");
-                            // FIX: Link to ui_state.master_eq_on for band enable
-                            ui.checkbox(&mut ui_state.master_eq_on, "On");
+                            // Removed duplicate checkbox - controlled by master_eq_on above
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_low_gain
@@ -942,8 +949,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                         ui.vertical(|ui| {
                             ui.label("Low Mid");
-                            // FIX: Link to ui_state.master_eq_on for band enable
-                            ui.checkbox(&mut ui_state.master_eq_on, "On");
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_lmid_gain
@@ -957,8 +962,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                         ui.vertical(|ui| {
                             ui.label("High Mid");
-                            // FIX: Link to ui_state.master_eq_on for band enable
-                            ui.checkbox(&mut ui_state.master_eq_on, "On");
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_hmid_gain
@@ -972,8 +975,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                         ui.vertical(|ui| {
                             ui.label("High");
-                            // FIX: Link to ui_state.master_eq_on for band enable
-                            ui.checkbox(&mut ui_state.master_eq_on, "On");
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_high_gain
@@ -1032,8 +1033,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 ui.collapsing("🎛️ Master Dynamics", |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Compressor:");
-                        // FIX: Link to ui_state.master_eq_on for compressor enable
-                        ui.checkbox(&mut ui_state.master_eq_on, "On");
 
                         ui.label("Ratio:");
                         // FIX: Link to ui_state.master_comp_ratio
@@ -1045,8 +1044,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     });
                     ui.horizontal(|ui| {
                         ui.label("Limiter:");
-                        // FIX: Link to ui_state.master_eq_on for limiter enable
-                        ui.checkbox(&mut ui_state.master_eq_on, "On");
                         
                         ui.label("Ceiling:");
                         // FIX: Link to ui_state.master_lim_ceiling
@@ -1071,7 +1068,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                 // Input selector with routing options
                                 ui.label("Input:");
                                 // FIX: Use channel_state.input directly
-                                egui::ComboBox::from_label("")
+                                egui::ComboBox::from_label(format!("##input_{}", i))
                                     .selected_text(&channel_state.input)
                                     .show_ui(ui, |ui| {
                                         // Simplified list for selector - still needs to use mutable state
@@ -1151,7 +1148,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.horizontal(|ui| {
                                         ui.checkbox(&mut channel_state.eq_on, "EQ On");
                                         ui.label("Type:");
-                                        egui::ComboBox::from_label("")
+                                        egui::ComboBox::from_label(format!("##eq_type_{}", i))
                                             .selected_text(&channel_state.eq_type)
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut channel_state.eq_type, "Parametric".to_string(), "Parametric");
@@ -1199,7 +1196,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.horizontal(|ui| {
                                         ui.vertical(|ui| {
                                             ui.label("Low Shelf");
-                                            ui.checkbox(&mut channel_state.eq_on, "On");
+                                            ui.checkbox(&mut channel_state.eq_low_band_on, "On");
                                             ui.label("Gain:");
                                             ui.add(egui::DragValue::new(&mut channel_state.eq_low_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
@@ -1210,7 +1207,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                         ui.vertical(|ui| {
                                             ui.label("Low Mid Peak");
-                                            ui.checkbox(&mut channel_state.eq_on, "On");
+                                            ui.checkbox(&mut channel_state.eq_lm_band_on, "On");
                                             ui.label("Gain:");
                                             ui.add(egui::DragValue::new(&mut channel_state.eq_lm_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
@@ -1221,7 +1218,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                         ui.vertical(|ui| {
                                             ui.label("High Mid Peak");
-                                            ui.checkbox(&mut channel_state.eq_on, "On");
+                                            ui.checkbox(&mut channel_state.eq_hm_band_on, "On");
                                             ui.label("Gain:");
                                             ui.add(egui::DragValue::new(&mut channel_state.eq_hm_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
@@ -1232,7 +1229,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                         ui.vertical(|ui| {
                                             ui.label("High Shelf");
-                                            ui.checkbox(&mut channel_state.eq_on, "On");
+                                            ui.checkbox(&mut channel_state.eq_high_band_on, "On");
                                             ui.label("Gain:");
                                             ui.add(egui::DragValue::new(&mut channel_state.eq_high_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
@@ -1337,8 +1334,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                                 });
                                             if ui.button("💾 Save").clicked() { println!("Save EQ preset"); }
                                         });
-
-                                        ui.checkbox(&mut channel_state.eq_on, "Link to Automation");
                                         let mut eq_bypass_solo = false; ui.checkbox(&mut eq_bypass_solo, "EQ Bypass in Solo");
                                     });
                                 });
@@ -1362,7 +1357,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                                 5 => "Master",
                                                 _ => "None",
                                             };
-                                            egui::ComboBox::from_label("")
+                                            egui::ComboBox::from_label(format!("##send_{}_{}", i, send))
                                                 .selected_text(send_dest)
                                                 .show_ui(ui, |ui| {
                                                     ui.selectable_value(&mut send_dest, "Reverb", "Reverb");
@@ -1382,7 +1377,6 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     for slot in 0..4 { // 4 insert slots
                                         ui.horizontal(|ui| {
                                             ui.label(format!("Slot {}:", slot + 1));
-                                            ui.checkbox(&mut channel_state.eq_on, "On");
                                             let mut effect = match slot {
                                                 0 => "Compressor",
                                                 1 => "EQ",
@@ -1390,7 +1384,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                                 3 => "Exciter",
                                                 _ => "None",
                                             };
-                                            egui::ComboBox::from_label("")
+                                            egui::ComboBox::from_label(format!("##insert_{}_{}", i, slot))
                                                 .selected_text(effect)
                                                 .show_ui(ui, |ui| {
                                                     ui.selectable_value(&mut effect, "Compressor", "Compressor");
@@ -1421,7 +1415,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.checkbox(&mut send_to_group, "Send to Group");
                                     ui.label("Group:");
                                     let mut group = "None";
-                                    egui::ComboBox::from_label("")
+                                    egui::ComboBox::from_label(format!("##routing_{}", i))
                                         .selected_text(group)
                                         .show_ui(ui, |ui| {
                                             ui.selectable_value(&mut group, "Group 1", "Group 1");
@@ -3028,6 +3022,195 @@ fn draw_node_view_full(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut No
         }
     }
 
+    // Handle mouse interactions for node selection and dragging
+    let mut dragged_node_id: Option<String> = None;
+    if response.dragged() {
+        if let Some(pointer_pos) = response.interact_pointer_pos() {
+            let rel_x = pointer_pos.x - rect.left();
+            let rel_y = pointer_pos.y - rect.top();
+            
+            // Check if dragging a node
+            for node in &mut state.node_positions {
+                let node_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(node.x, node.y),
+                    egui::Vec2::new(140.0, if state.show_parameters && node.selected { 120.0 } else { 100.0 })
+                );
+                
+                if node_rect.contains(egui::Pos2::new(rel_x, rel_y)) {
+                    dragged_node_id = Some(node.id.clone());
+                    let drag_delta = response.drag_delta();
+                    node.x += drag_delta.x;
+                    node.y += drag_delta.y;
+                    
+                    // Snap to grid if enabled
+                    if state.grid_snap {
+                        node.x = (node.x / 20.0).round() * 20.0;
+                        node.y = (node.y / 20.0).round() * 20.0;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Handle node selection on click
+    if response.clicked() {
+        if let Some(pointer_pos) = response.interact_pointer_pos() {
+            let rel_x = pointer_pos.x - rect.left();
+            let rel_y = pointer_pos.y - rect.top();
+            
+            // Deselect all nodes first if not holding shift
+            let shift_held = ui.input(|i| i.modifiers.shift);
+            if !shift_held {
+                for node in &mut state.node_positions {
+                    node.selected = false;
+                }
+            }
+            
+            // Select clicked node
+            for node in &mut state.node_positions {
+                let node_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(node.x, node.y),
+                    egui::Vec2::new(140.0, if state.show_parameters && node.selected { 120.0 } else { 100.0 })
+                );
+                
+                if node_rect.contains(egui::Pos2::new(rel_x, rel_y)) {
+                    node.selected = !node.selected;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Track connection creation state
+    static mut CONNECTION_START: Option<(String, bool)> = None; // (node_id, is_from_output)
+    
+    // Handle connection creation by dragging from ports
+    if response.drag_started() {
+        if let Some(pointer_pos) = response.interact_pointer_pos() {
+            let rel_x = pointer_pos.x - rect.left();
+            let rel_y = pointer_pos.y - rect.top();
+            
+            for node in &state.node_positions {
+                let node_rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(node.x, node.y),
+                    egui::Vec2::new(140.0, if state.show_parameters && node.selected { 120.0 } else { 100.0 })
+                );
+                
+                // Check output port (right side)
+                let output_pos = egui::Pos2::new(node_rect.right(), node_rect.center().y);
+                if (egui::Pos2::new(rel_x + rect.left(), rel_y + rect.top()) - output_pos).length() < 12.0 {
+                    unsafe { CONNECTION_START = Some((node.id.clone(), true)); }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Finish connection creation on drag release
+    if response.drag_stopped() {
+        unsafe {
+            if let Some((start_node_id, is_from_output)) = CONNECTION_START.take() {
+                if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    let rel_x = pointer_pos.x - rect.left();
+                    let rel_y = pointer_pos.y - rect.top();
+                    
+                    // Find target node's input port
+                    for node in &state.node_positions {
+                        if node.id == start_node_id { continue; }
+                        
+                        let node_rect = egui::Rect::from_min_size(
+                            egui::Pos2::new(node.x, node.y),
+                            egui::Vec2::new(140.0, if state.show_parameters && node.selected { 120.0 } else { 100.0 })
+                        );
+                        
+                        // Check input port (left side)
+                        let input_pos = egui::Pos2::new(node_rect.left(), node_rect.center().y);
+                        if (egui::Pos2::new(rel_x + rect.left(), rel_y + rect.top()) - input_pos).length() < 12.0 {
+                            // Create connection
+                            let connection = NodeConnection {
+                                id: format!("conn_{}_{}", state.connections.len(), ui.input(|i| i.time)),
+                                from_node: start_node_id.clone(),
+                                from_port: "out".to_string(),
+                                to_node: node.id.clone(),
+                                to_port: "in".to_string(),
+                                data_type: "audio".to_string(),
+                            };
+                            state.connections.push(connection);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Draw connection preview while dragging from port
+    unsafe {
+        if let Some((start_node_id, _)) = &CONNECTION_START {
+            if let Some(start_node) = state.node_positions.iter().find(|n| &n.id == start_node_id) {
+                if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    let start_pos = egui::Pos2::new(
+                        rect.left() + start_node.x + 140.0,
+                        rect.top() + start_node.y + 50.0
+                    );
+                    
+                    // Draw preview connection as dashed line
+                    let steps = 10;
+                    for i in 0..steps {
+                        let t1 = i as f32 / steps as f32;
+                        let t2 = (i + 1) as f32 / steps as f32;
+                        
+                        let p1 = egui::Pos2::new(
+                            start_pos.x + (pointer_pos.x - start_pos.x) * t1,
+                            start_pos.y + (pointer_pos.y - start_pos.y) * t1
+                        );
+                        let p2 = egui::Pos2::new(
+                            start_pos.x + (pointer_pos.x - start_pos.x) * t2,
+                            start_pos.y + (pointer_pos.y - start_pos.y) * t2
+                        );
+                        
+                        if i % 2 == 0 {
+                            ui.painter().line_segment(
+                                [p1, p2],
+                                egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 255, 100))
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Handle connection deletion on right-click
+    if response.secondary_clicked() {
+        if let Some(pointer_pos) = response.interact_pointer_pos() {
+            let mouse_pos = egui::Pos2::new(pointer_pos.x, pointer_pos.y);
+            
+            // Check if clicking on a connection
+            state.connections.retain(|connection| {
+                if let (Some(from_node), Some(to_node)) = (
+                    state.node_positions.iter().find(|n| n.id == connection.from_node),
+                    state.node_positions.iter().find(|n| n.id == connection.to_node)
+                ) {
+                    let start_pos = egui::Pos2::new(
+                        rect.left() + from_node.x + 140.0,
+                        rect.top() + from_node.y + 50.0
+                    );
+                    let end_pos = egui::Pos2::new(
+                        rect.left() + to_node.x,
+                        rect.top() + to_node.y + 50.0
+                    );
+                    
+                    // Simple distance check to line segment
+                    let dist = point_to_line_distance(mouse_pos, start_pos, end_pos);
+                    return dist > 10.0; // Keep if distance > 10 pixels
+                }
+                true
+            });
+        }
+    }
+
     // Draw nodes with enhanced visuals and parameters
     for node in &mut state.node_positions {
         let node_rect = egui::Rect::from_min_size(
@@ -3653,6 +3836,25 @@ fn add_instrument_preset(state: &mut NodeViewState, instrument_type: &str) {
         }
         _ => {}
     }
+}
+
+/// Helper function to calculate distance from point to line segment
+fn point_to_line_distance(point: egui::Pos2, line_start: egui::Pos2, line_end: egui::Pos2) -> f32 {
+    let px = line_end.x - line_start.x;
+    let py = line_end.y - line_start.y;
+    let norm = px * px + py * py;
+    
+    if norm == 0.0 {
+        return ((point.x - line_start.x).powi(2) + (point.y - line_start.y).powi(2)).sqrt();
+    }
+    
+    let u = ((point.x - line_start.x) * px + (point.y - line_start.y) * py) / norm;
+    let u = u.max(0.0).min(1.0);
+    
+    let x = line_start.x + u * px;
+    let y = line_start.y + u * py;
+    
+    ((point.x - x).powi(2) + (point.y - y).powi(2)).sqrt()
 }
 
 /// Application Entry Point with UI - Full eframe Implementation

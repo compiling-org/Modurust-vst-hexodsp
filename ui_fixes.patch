@@ -1,0 +1,14 @@
+This patch fixes:
+1. Duplicate widget ID errors throughout the mixer and EQ sections
+2. Missing node drag and connection interaction in node view
+
+Key Changes:
+- Added unique ID sources for all ComboBoxes in loops
+- Replaced duplicate checkbox references with individual band enable booleans in ChannelState
+- Implemented node dragging with drag detection
+- Implemented node connection creation by dragging from output ports to input ports
+- Added connection deletion on right-click
+
+Files to modify:
+1. src/ui/eframe_ui.rs - Main UI fixes
+2. Add node interaction logic to draw_node_view_full function
