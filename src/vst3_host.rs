@@ -6,12 +6,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
-// Placeholder for VST3 types - would use vst3-sys when available
+// VST3 types from vst3-sys - currently using placeholders for demo
+// Future implementation will use:
 // use vst3_sys::base::{kResultOk, tresult};
 // use vst3_sys::vst::{IComponent, IEditController, IAudioProcessor, ProcessData, ProcessSetup};
-// use vst3_sys::com::ComPtr;
 
 /// VST3 Plugin Instance
+#[derive(Clone)]
 pub struct VST3Plugin {
     // Placeholder for VST3 component handles
     pub component_handle: u64, // Placeholder
@@ -49,9 +50,11 @@ pub struct VST3Parameter {
 }
 
 /// VST3 Plugin Host
+#[derive(Clone)]
 pub struct VST3Host {
     plugins: HashMap<String, Arc<Mutex<VST3Plugin>>>,
     loaded_plugins: Vec<String>,
+    available_plugins: Vec<VST3PluginInfo>,
     sample_rate: f32,
     max_block_size: usize,
 }
@@ -61,6 +64,7 @@ impl VST3Host {
         Self {
             plugins: HashMap::new(),
             loaded_plugins: Vec::new(),
+            available_plugins: Vec::new(),
             sample_rate: 44100.0,
             max_block_size: 512,
         }
@@ -243,21 +247,94 @@ impl VST3Host {
         &self.loaded_plugins
     }
 
+    /// Get list of available scanned plugins
+    pub fn get_plugins(&self) -> &[VST3PluginInfo] {
+        &self.available_plugins
+    }
+
+    /// Get count of available plugins
+    pub fn get_plugin_count(&self) -> usize {
+        self.available_plugins.len()
+    }
+
     /// Scan for VST3 plugins in standard directories
     pub fn scan_plugins(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        // In a real implementation, this would scan:
-        // - Windows: %PROGRAMFILES%\Common Files\VST3, %PROGRAMFILES(x86)%\Common Files\VST3
-        // - macOS: /Library/Audio/Plug-Ins/VST3, ~/Library/Audio/Plug-Ins/VST3
-        // - Linux: /usr/lib/vst3, /usr/local/lib/vst3, ~/.vst3
+        use std::fs;
+        use std::path::Path;
 
-        let found_plugins = vec![
-            "Demo Reverb.vst3".to_string(),
-            "Demo Compressor.vst3".to_string(),
-            "Demo EQ.vst3".to_string(),
-            "Demo Delay.vst3".to_string(),
+        let mut found_plugins = Vec::new();
+
+        // Standard VST3 directories for Windows
+        let vst3_paths: Vec<String> = vec![
+            r"C:\Program Files\Common Files\VST3".to_string(),
+            r"C:\Program Files (x86)\Common Files\VST3".to_string(),
+            format!(r"{}\\.vst3", std::env::var("USERPROFILE").unwrap_or_default()),
         ];
 
-        println!("🎛️ Found {} VST3 plugins", found_plugins.len());
+        self.available_plugins.clear();
+        for path in vst3_paths {
+            if let Ok(entries) = fs::read_dir(&path) {
+                for entry in entries.flatten() {
+                    let bundle_path = entry.path();
+                    // VST3 plugins on Windows are directories ending with .vst3
+                    if bundle_path.is_dir() && bundle_path.extension().and_then(|s| s.to_str()) == Some("vst3") {
+                        if let Some(name) = bundle_path.file_stem().and_then(|s| s.to_str()) {
+                            found_plugins.push(name.to_string());
+                            // Record a minimal VST3PluginInfo for UI display
+                            self.available_plugins.push(VST3PluginInfo {
+                                name: name.to_string(),
+                                vendor: "Unknown".to_string(),
+                                version: "".to_string(),
+                                category: "Effect".to_string(),
+                                uid: format!("{}", name),
+                                inputs: 2,
+                                outputs: 2,
+                                parameters: vec![],
+                            });
+                            println!("🎛️ Found VST3 plugin: {}", name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add some demo plugins if no real ones found
+        if found_plugins.is_empty() {
+            found_plugins = vec![
+                "Demo Reverb.vst3".to_string(),
+                "Demo Compressor.vst3".to_string(),
+                "Demo EQ.vst3".to_string(),
+                "Demo Delay.vst3".to_string(),
+                "Demo Distortion.vst3".to_string(),
+                "Demo Chorus.vst3".to_string(),
+            ];
+        }
+
+        // If none found, keep demo entries for UI sanity
+        if found_plugins.is_empty() {
+            let demos = vec![
+                "Demo Reverb",
+                "Demo Compressor",
+                "Demo EQ",
+                "Demo Delay",
+                "Demo Distortion",
+                "Demo Chorus",
+            ];
+            for name in demos {
+                self.available_plugins.push(VST3PluginInfo {
+                    name: format!("{}", name),
+                    vendor: "HexoDSP".to_string(),
+                    version: "1.0.0".to_string(),
+                    category: "Effect".to_string(),
+                    uid: name.to_string(),
+                    inputs: 2,
+                    outputs: 2,
+                    parameters: vec![],
+                });
+            }
+        }
+
+        println!("🎛️ Found {} VST3 plugins total", self.available_plugins.len());
         Ok(found_plugins)
     }
 }

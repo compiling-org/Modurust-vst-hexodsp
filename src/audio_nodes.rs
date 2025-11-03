@@ -879,5 +879,367 @@ pub fn create_audio_node_registry() -> std::collections::HashMap<String, Box<dyn
         }
     }));
 
+    // Register Reverb
+    registry.insert("effect.reverb".to_string(), Box::new(|id| {
+        NeuroNodeDefinition {
+            id,
+            name: "Reverb".to_string(),
+            node_type: "effect.reverb".to_string(),
+            inputs: vec![
+                NeuroNodePort { name: "audio_in".to_string(), data_type: NeuroDataType::Audio, required: true },
+                NeuroNodePort { name: "room_size".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "damping".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "wet_dry".to_string(), data_type: NeuroDataType::Float, required: false },
+            ],
+            outputs: vec![
+                NeuroNodePort { name: "audio_out".to_string(), data_type: NeuroDataType::Audio, required: true },
+            ],
+        }
+    }));
+
+    // Register Distortion
+    registry.insert("effect.distortion".to_string(), Box::new(|id| {
+        NeuroNodeDefinition {
+            id,
+            name: "Distortion".to_string(),
+            node_type: "effect.distortion".to_string(),
+            inputs: vec![
+                NeuroNodePort { name: "audio_in".to_string(), data_type: NeuroDataType::Audio, required: true },
+                NeuroNodePort { name: "drive".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "tone".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "level".to_string(), data_type: NeuroDataType::Float, required: false },
+            ],
+            outputs: vec![
+                NeuroNodePort { name: "audio_out".to_string(), data_type: NeuroDataType::Audio, required: true },
+            ],
+        }
+    }));
+
+    // Register 3-Band EQ
+    registry.insert("effect.eq3".to_string(), Box::new(|id| {
+        NeuroNodeDefinition {
+            id,
+            name: "3-Band EQ".to_string(),
+            node_type: "effect.eq3".to_string(),
+            inputs: vec![
+                NeuroNodePort { name: "audio_in".to_string(), data_type: NeuroDataType::Audio, required: true },
+                NeuroNodePort { name: "low_gain".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "mid_gain".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "high_gain".to_string(), data_type: NeuroDataType::Float, required: false },
+            ],
+            outputs: vec![
+                NeuroNodePort { name: "audio_out".to_string(), data_type: NeuroDataType::Audio, required: true },
+            ],
+        }
+    }));
+
+    // Register FM Synthesizer
+    registry.insert("generator.fm".to_string(), Box::new(|id| {
+        NeuroNodeDefinition {
+            id,
+            name: "FM Synth".to_string(),
+            node_type: "generator.fm".to_string(),
+            inputs: vec![
+                NeuroNodePort { name: "frequency".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "fm_amount".to_string(), data_type: NeuroDataType::Float, required: false },
+                NeuroNodePort { name: "fm_ratio".to_string(), data_type: NeuroDataType::Float, required: false },
+            ],
+            outputs: vec![
+                NeuroNodePort { name: "audio_out".to_string(), data_type: NeuroDataType::Audio, required: true },
+            ],
+        }
+    }));
+
     registry
+}
+
+/// Reverb implementation (Schroeder reverb)
+pub struct ReverbNode {
+    comb_delays: [DelayLine; 4],
+    allpass_delays: [DelayLine; 2],
+    room_size: f32,
+    damping: f32,
+    wet_dry: f32,
+    sample_rate: f32,
+}
+
+#[async_trait::async_trait]
+impl NeuroNodeProcessor for ReverbNode {
+    async fn process(&mut self, inputs: std::collections::HashMap<String, Value>) -> Result<std::collections::HashMap<String, Value>, String> {
+        let audio_in: AudioBuffer = inputs.get("audio_in")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| AudioBuffer::new(BUFFER_SIZE));
+
+        // Update parameters
+        if let Some(room) = inputs.get("room_size").and_then(|v| v.as_f64()) {
+            self.room_size = room as f32;
+        }
+        if let Some(damp) = inputs.get("damping").and_then(|v| v.as_f64()) {
+            self.damping = damp as f32;
+        }
+        if let Some(wet) = inputs.get("wet_dry").and_then(|v| v.as_f64()) {
+            self.wet_dry = wet as f32;
+        }
+
+        let mut output = AudioBuffer::new(BUFFER_SIZE);
+
+        for i in 0..BUFFER_SIZE {
+            let input_frame = audio_in.get(i);
+            
+            // Process left channel
+            let mut reverb_left = 0.0;
+            for comb in &mut self.comb_delays {
+                comb.write(input_frame.left + reverb_left * self.room_size * 0.8);
+                reverb_left += comb.read(comb.delay_time_to_samples(50.0 + reverb_left * 20.0));
+            }
+            
+            // Allpass filters for diffusion
+            for allpass in &mut self.allpass_delays {
+                allpass.write(reverb_left);
+                reverb_left = allpass.read(allpass.delay_time_to_samples(10.0));
+            }
+            
+            // Process right channel (slightly different delays for stereo)
+            let mut reverb_right = 0.0;
+            for (idx, comb) in self.comb_delays.iter_mut().enumerate() {
+                comb.write(input_frame.right + reverb_right * self.room_size * 0.8);
+                reverb_right += comb.read(comb.delay_time_to_samples(52.0 + idx as f32 * 3.0 + reverb_right * 18.0));
+            }
+            
+            for allpass in &mut self.allpass_delays {
+                allpass.write(reverb_right);
+                reverb_right = allpass.read(allpass.delay_time_to_samples(12.0));
+            }
+            
+            // Mix wet/dry
+            let wet_left = reverb_left * self.wet_dry;
+            let wet_right = reverb_right * self.wet_dry;
+            let dry_left = input_frame.left * (1.0 - self.wet_dry);
+            let dry_right = input_frame.right * (1.0 - self.wet_dry);
+            
+            output.set(i, StereoFrame::new(dry_left + wet_left, dry_right + wet_right));
+        }
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert("audio_out".to_string(), serde_json::to_value(output).unwrap());
+        Ok(outputs)
+    }
+}
+
+impl ReverbNode {
+    pub fn new(sample_rate: f32) -> Self {
+        Self {
+            comb_delays: [
+                DelayLine::new(100.0, sample_rate),
+                DelayLine::new(120.0, sample_rate),
+                DelayLine::new(140.0, sample_rate),
+                DelayLine::new(160.0, sample_rate),
+            ],
+            allpass_delays: [
+                DelayLine::new(30.0, sample_rate),
+                DelayLine::new(40.0, sample_rate),
+            ],
+            room_size: 0.5,
+            damping: 0.5,
+            wet_dry: 0.3,
+            sample_rate,
+        }
+    }
+}
+
+/// Distortion/Saturation effect
+pub struct DistortionNode {
+    drive: f32,
+    tone: f32,
+    level: f32,
+    filter: BiquadFilter,
+}
+
+#[async_trait::async_trait]
+impl NeuroNodeProcessor for DistortionNode {
+    async fn process(&mut self, inputs: std::collections::HashMap<String, Value>) -> Result<std::collections::HashMap<String, Value>, String> {
+        let audio_in: AudioBuffer = inputs.get("audio_in")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| AudioBuffer::new(BUFFER_SIZE));
+
+        // Update parameters
+        if let Some(d) = inputs.get("drive").and_then(|v| v.as_f64()) {
+            self.drive = d as f32;
+        }
+        if let Some(t) = inputs.get("tone").and_then(|v| v.as_f64()) {
+            self.tone = t as f32;
+            // Update tone filter
+            self.filter = BiquadFilter::lowpass(1000.0 + self.tone * 4000.0, 0.7, 44100.0);
+        }
+        if let Some(l) = inputs.get("level").and_then(|v| v.as_f64()) {
+            self.level = l as f32;
+        }
+
+        let mut output = AudioBuffer::new(BUFFER_SIZE);
+
+        for i in 0..BUFFER_SIZE {
+            let input_frame = audio_in.get(i);
+            
+            // Apply drive/distortion using tanh saturation
+            let driven_left = (input_frame.left * self.drive).tanh();
+            let driven_right = (input_frame.right * self.drive).tanh();
+            
+            // Apply tone filtering
+            let filtered_left = self.filter.process(driven_left);
+            let filtered_right = self.filter.process(driven_right);
+            
+            // Apply output level
+            let output_left = filtered_left * self.level;
+            let output_right = filtered_right * self.level;
+            
+            output.set(i, StereoFrame::new(output_left, output_right));
+        }
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert("audio_out".to_string(), serde_json::to_value(output).unwrap());
+        Ok(outputs)
+    }
+}
+
+impl DistortionNode {
+    pub fn new() -> Self {
+        Self {
+            drive: 2.0,
+            tone: 0.5,
+            level: 0.5,
+            filter: BiquadFilter::lowpass(3000.0, 0.7, 44100.0),
+        }
+    }
+}
+
+/// Simple 3-band EQ
+pub struct ThreeBandEQ {
+    low_filter: BiquadFilter,
+    mid_filter: BiquadFilter,
+    high_filter: BiquadFilter,
+    low_gain: f32,
+    mid_gain: f32,
+    high_gain: f32,
+}
+
+#[async_trait::async_trait]
+impl NeuroNodeProcessor for ThreeBandEQ {
+    async fn process(&mut self, inputs: std::collections::HashMap<String, Value>) -> Result<std::collections::HashMap<String, Value>, String> {
+        let audio_in: AudioBuffer = inputs.get("audio_in")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| AudioBuffer::new(BUFFER_SIZE));
+
+        // Update parameters
+        if let Some(low) = inputs.get("low_gain").and_then(|v| v.as_f64()) {
+            self.low_gain = low as f32;
+        }
+        if let Some(mid) = inputs.get("mid_gain").and_then(|v| v.as_f64()) {
+            self.mid_gain = mid as f32;
+        }
+        if let Some(high) = inputs.get("high_gain").and_then(|v| v.as_f64()) {
+            self.high_gain = high as f32;
+        }
+
+        let mut output = AudioBuffer::new(BUFFER_SIZE);
+
+        for i in 0..BUFFER_SIZE {
+            let input_frame = audio_in.get(i);
+            
+            // Process each band
+            let low_left = self.low_filter.process(input_frame.left) * self.low_gain;
+            let mid_left = self.mid_filter.process(input_frame.left) * self.mid_gain;
+            let high_left = self.high_filter.process(input_frame.left) * self.high_gain;
+            
+            let low_right = self.low_filter.process(input_frame.right) * self.low_gain;
+            let mid_right = self.mid_filter.process(input_frame.right) * self.mid_gain;
+            let high_right = self.high_filter.process(input_frame.right) * self.high_gain;
+            
+            // Sum the bands
+            let output_left = low_left + mid_left + high_left;
+            let output_right = low_right + mid_right + high_right;
+            
+            output.set(i, StereoFrame::new(output_left, output_right));
+        }
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert("audio_out".to_string(), serde_json::to_value(output).unwrap());
+        Ok(outputs)
+    }
+}
+
+impl ThreeBandEQ {
+    pub fn new(sample_rate: f32) -> Self {
+        Self {
+            low_filter: BiquadFilter::lowpass(200.0, 0.7, sample_rate),
+            mid_filter: BiquadFilter::new(), // Bandpass would be better, using identity for now
+            high_filter: BiquadFilter::highpass(2000.0, 0.7, sample_rate),
+            low_gain: 1.0,
+            mid_gain: 1.0,
+            high_gain: 1.0,
+        }
+    }
+}
+
+/// FM Synthesizer
+pub struct FMSynthesizer {
+    carrier_phase: f32,
+    modulator_phase: f32,
+    sample_rate: f32,
+    frequency: f32,
+    fm_amount: f32,
+    fm_ratio: f32,
+}
+
+#[async_trait::async_trait]
+impl NeuroNodeProcessor for FMSynthesizer {
+    async fn process(&mut self, inputs: std::collections::HashMap<String, Value>) -> Result<std::collections::HashMap<String, Value>, String> {
+        // Update parameters
+        if let Some(freq) = inputs.get("frequency").and_then(|v| v.as_f64()) {
+            self.frequency = freq as f32;
+        }
+        if let Some(fm_amt) = inputs.get("fm_amount").and_then(|v| v.as_f64()) {
+            self.fm_amount = fm_amt as f32;
+        }
+        if let Some(fm_rat) = inputs.get("fm_ratio").and_then(|v| v.as_f64()) {
+            self.fm_ratio = fm_rat as f32;
+        }
+
+        let mut output = AudioBuffer::new(BUFFER_SIZE);
+
+        for i in 0..BUFFER_SIZE {
+            // Generate modulator
+            let modulator = (self.modulator_phase * 2.0 * std::f32::consts::PI).sin();
+            self.modulator_phase += (self.frequency * self.fm_ratio) / self.sample_rate;
+            if self.modulator_phase >= 1.0 {
+                self.modulator_phase -= 1.0;
+            }
+            
+            // Generate carrier with FM
+            let fm_offset = modulator * self.fm_amount;
+            let carrier = ((self.carrier_phase + fm_offset) * 2.0 * std::f32::consts::PI).sin();
+            self.carrier_phase += self.frequency / self.sample_rate;
+            if self.carrier_phase >= 1.0 {
+                self.carrier_phase -= 1.0;
+            }
+            
+            output.set(i, StereoFrame::mono(carrier * 0.5));
+        }
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert("audio_out".to_string(), serde_json::to_value(output).unwrap());
+        Ok(outputs)
+    }
+}
+
+impl FMSynthesizer {
+    pub fn new(sample_rate: f32) -> Self {
+        Self {
+            carrier_phase: 0.0,
+            modulator_phase: 0.0,
+            sample_rate,
+            frequency: 440.0,
+            fm_amount: 1.0,
+            fm_ratio: 2.0,
+        }
+    }
 }

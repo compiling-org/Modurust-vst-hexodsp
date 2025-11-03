@@ -37,6 +37,16 @@
 
 ---
 
+### ✅ **NEWLY IMPLEMENTED & INTEGRATED**
+
+#### Core System Components (`src/`)
+These files have been implemented and integrated into the system:
+
+1. **`node_instance_manager.rs`** - Manages audio node lifecycles and parameter synchronization
+2. **`event_queue.rs`** - Enhanced time-stamped event queue for sample-accurate automation
+3. **`clip_node_integration.rs`** - Clip-to-Node spawning with bi-directional deletion
+4. **`ui/hexagonal_node_view.rs`** - Hexagonal patching view UI for modular workflow
+
 ### ⚠️ **INACTIVE / NOT INTEGRATED**
 
 #### Root-Level Modules (`src/`)

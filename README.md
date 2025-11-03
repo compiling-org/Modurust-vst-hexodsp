@@ -38,6 +38,14 @@ A revolutionary Rust-based Digital Audio Workstation featuring a unique three-vi
 - **Real-time effects** and signal processing
 - **Web-based interface** for browser access and collaboration
 
+### Implementation Status Highlights (2025-11)
+- **Real-time bridge**: UI ↔ Audio communication implemented with lock-free channels and feedback bus.
+- **Sample-accurate automation**: Event queue exists, integration into audio callback is pending.
+- **Node graph mapping**: Visual hex node view present; engine-side node creation/connection handling pending.
+- **Atomic parameters**: Manager uses `Mutex<f32>`; switch to atomic primitives for RT safety.
+- **Deep time & polyspectral**: Phase vocoder, time anchors, and FFT band-routing are roadmap items.
+- **Modu-Commit workflow**: UI buttons exist; snapshot/branch engine support pending.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -275,3 +283,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Modurust DAW** - Where traditional production meets live performance and AI creativity.
+## 📌 Next Steps (Phase 5B)
+- **Bridge Protocol Coverage**: Handle `AddNode`, `RemoveNode`, `ConnectNodes`, and `SetParameter` in `HexoDSPEngine`.
+- **NodeInstanceManager Integration**: Connect Node View interactions to actual audio nodes on the RT thread.
+- **Event Queue Wiring**: Apply time-stamped parameter changes within buffer processing for sample accuracy.
+- **Atomic Parameter Storage**: Replace `Mutex<f32>` with atomics for real-time reads/writes.
+- **Spectral & Time Modules**: Implement FFT-based band routers and phase vocoder nodes.
+- **Snapshot/Branching**: Add track-level commit history and A/B/C branches controlled from UI.

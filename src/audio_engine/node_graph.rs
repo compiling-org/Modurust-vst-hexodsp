@@ -352,6 +352,16 @@ impl NodeGraph {
         // Update timing
         self.audio_flow.current_time += output_buffer.len() as f64 / self.audio_flow.sample_rate as f64;
     }
+
+    /// Set a parameter on a node (updates cached value and underlying DSP module)
+    pub fn set_node_parameter(&mut self, node_id: usize, param: &str, value: f32) {
+        if let Some(node) = self.nodes.get_mut(&node_id) {
+            node.parameters.insert(param.to_string(), value);
+            if let Some(ref mut dsp) = node.dsp_module {
+                dsp.set_parameter(param, value);
+            }
+        }
+    }
     
     /// Apply node-specific processing (like applying track volumes)
     fn apply_node_processing(&mut self, node_id: usize, _buffer: &[f32]) {

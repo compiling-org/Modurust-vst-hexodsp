@@ -193,3 +193,78 @@ pub trait Plugin: Send + Sync {
 - **Migration Guides**: Easy upgrade paths
 
 This architecture provides a solid foundation for a professional-grade digital audio workstation while maintaining the flexibility needed for future enhancements and user requirements.
+
+## Real-Time State Management (Rust Advantage)
+
+- UI → Audio bridge uses lock-free channels to pass control messages (`Play`, `Stop`, `SetTempo`, volume, node graph ops).
+- Real-time feedback bus returns transport state, peak meters, spectrum, and current parameter snapshots to the UI.
+- Parameter changes are represented as small, copy-free messages; the audio thread polls and applies them in its callback.
+
+Implementation details:
+- Inter-thread messaging: Crossbeam channels in `src/audio_engine/bridge.rs` provide non-blocking UI → audio communication.
+- Feedback cadence: The bridge throttles UI feedback (default 30 Hz) to keep UI smooth without burdening the audio thread.
+- Parameter snapshotting: `AudioEngineState.current_params` collects live parameter values for UI synchronization.
+
+Limitations to address:
+- Sample-accurate automation: `src/event_queue.rs` defines a lock-free, time-stamped `EventQueue`, but it is not wired into the audio callback yet.
+- Atomic parameters: `NodeInstanceManager` stores parameters via `Arc<Mutex<f32>>`; replace with `AtomicF32` or split-atomic design for RT safety.
+
+## Bridge Protocol and Node Mapping
+
+- Protocol: `AudioParamMessage` includes transport, mixer, EQ/effects, generic parameter setting, and node graph control (`AddNode`, `RemoveNode`, `ConnectNodes`).
+- Manager: `src/node_instance_manager.rs` provides a UI-side `NodeInstanceManager` to create/delete/connect nodes and push parameter changes through the bridge.
+
+Current state:
+- Engine handling: `HexoDSPEngine::handle_param_message` processes transport and simple volume messages, but does not yet handle `AddNode`, `RemoveNode`, `ConnectNodes`, or `SetParameter` for graph nodes.
+- UI mapping gap: Hexagonal Node View (`src/ui/hexagonal_node_view.rs`) is visual-only and not yet synchronized with `NodeGraph` in the audio engine.
+
+Planned refinement:
+- NodeInstanceManager integration: Connect Node View actions to real audio node creation on the RT thread.
+- Protocol coverage: Implement handling of node operations in `HexoDSPEngine`, and route parameter updates down to DSP modules.
+- Bi-directional sync: Ensure engine → UI parameter snapshots and meters reflect actual nodes shown in the Node View per selected track.
+
+## Deep Time Manipulation and Polyspectral Processing (Status)
+
+- Phase vocoder / time-warp: Documented in UI files as roadmap, not implemented in DSP modules yet.
+- Time anchors: Not implemented in transport/arrangement editing.
+- Polyspectral routing: FFT-based band routing mentioned in docs; no `rustfft`-backed modules in the engine today.
+
+Next steps:
+- Add FFT analysis modules, phase vocoder node, and band-split routers to `dsp_core`.
+- Extend transport and clip model for “time anchors” and real-time warp.
+
+## Hexagonal Patching View (UI/UX)
+
+- The Node View renders a hardware-accelerated hex grid with draggable nodes and ports.
+- Color-coded nodes and patch cables are present; embedded UI widgets per node (EQ spectrum, synth controls) are planned.
+
+Status:
+- Visual canvas present (`src/ui/hexagonal_node_view.rs`, integrated in `src/ui/eframe_ui_full.rs`).
+- Functional audio mapping pending; visual patches do not yet generate sound.
+
+## “Modu-Commit” Workflow (Status)
+
+- UI buttons for Commit/Branch exist in `eframe_ui_full.rs` under “Patch History”.
+- Track state snapshots and branching are not implemented in engine/core.
+
+Planned:
+- Snapshot: Serialize all node parameters, arrangements, and automation per track.
+- Branching: Maintain multiple named states (A/B/C) with instant switching.
+
+## Implementation Status Summary
+
+- Atomic Parameter Storage: Partial. Bridge and state are lightweight; parameters use `Mutex<f32>` in manager. Replace with atomics for RT.
+- Time-Stamped Event Queue: Present (`src/event_queue.rs`), not integrated in audio callback; sample-accurate automation pending.
+- Module Hot-Swapping: Node add/remove/connect exist; safe in-place swap with `Arc` and state preservation not implemented.
+- Deep Time Manipulation: Not implemented (phase vocoder, anchors, clip warp).
+- Polyspectral Processing: Not implemented (no FFT nodes/band routers yet).
+- Hexagonal Patching View: Implemented visually; audio mapping pending.
+- Modu-Commit Workflow: UI placeholders only; snapshotting/branching engine support pending.
+
+## Actionable Next Steps (Phase 5B)
+
+- Implement `NodeInstanceManager` hookup in UI, and engine-side handling of node graph messages.
+- Wire `EventQueue` into the audio thread, applying param changes at buffer sample offsets.
+- Replace `Arc<Mutex<f32>>` with atomic primitives for RT-safe parameter access.
+- Add FFT modules and a phase vocoder to `dsp_core`, with routing nodes for band processing.
+- Build snapshot/branch APIs and a History Panel that controls track-level states.

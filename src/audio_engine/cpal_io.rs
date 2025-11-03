@@ -7,6 +7,7 @@ use cpal::{Device, Host, Stream, StreamConfig, SampleFormat, InputCallbackInfo, 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 /// Audio configuration structure
 #[derive(Debug, Clone)]
@@ -49,6 +50,9 @@ pub struct AudioIO {
     running: Arc<AtomicBool>,
     buffer_size: u32,
     sample_rate: u32,
+    // Simple test tone controls (until full graph processing is wired)
+    tone_freq: Arc<Mutex<f32>>, // Hz
+    tone_amp: Arc<Mutex<f32>>,  // 0.0..=1.0
 }
 
 impl AudioIO {
@@ -85,6 +89,8 @@ impl AudioIO {
             running: Arc::new(AtomicBool::new(false)),
             buffer_size,
             sample_rate,
+            tone_freq: Arc::new(Mutex::new(440.0)),
+            tone_amp: Arc::new(Mutex::new(0.1)),
         })
     }
     
@@ -169,6 +175,8 @@ impl AudioIO {
             let config = self.create_output_config()?;
             let running = Arc::clone(&self.running);
             
+            let tone_freq = Arc::clone(&self.tone_freq);
+            let tone_amp = Arc::clone(&self.tone_amp);
             let output_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
                 if !running.load(Ordering::SeqCst) {
                     // Fill with silence if not running
@@ -180,14 +188,15 @@ impl AudioIO {
                 
                 // Generate test tone (sine wave)
                 let sample_rate = 44100.0;
-                let freq = 440.0; // A4
+                let freq = *tone_freq.lock().unwrap();
+                let amp = *tone_amp.lock().unwrap();
                 let time = std::time::SystemTime::now();
                 let elapsed = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                 let seconds = elapsed.as_secs_f64();
                 
                 for (i, sample) in data.iter_mut().enumerate() {
                     let t = seconds + (i as f64 / sample_rate);
-                    *sample = (2.0 * std::f64::consts::PI * freq * t).sin() as f32 * 0.1;
+                    *sample = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32 * amp;
                 }
             };
             
@@ -236,6 +245,81 @@ impl AudioIO {
         
         self.running.store(true, Ordering::SeqCst);
         println!("✅ Audio streams started successfully");
+        Ok(())
+    }
+
+    /// Start only output stream (no input monitoring to prevent feedback)
+    pub fn start_output_only(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.running.load(Ordering::SeqCst) {
+            println!("⚠️ Audio streams already running");
+            return Ok(());
+        }
+
+        println!("🎵 Starting audio output stream only (input monitoring disabled)...");
+        
+        // Set up output stream only
+        if let Some(device) = &self.output_device {
+            let config = self.create_output_config()?;
+            let running = Arc::clone(&self.running);
+            
+            let tone_freq = Arc::clone(&self.tone_freq);
+            let tone_amp = Arc::clone(&self.tone_amp);
+            let output_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
+                if !running.load(Ordering::SeqCst) {
+                    // Fill with silence if not running
+                    for sample in data.iter_mut() {
+                        *sample = 0.0;
+                    }
+                    return;
+                }
+                
+                // Generate test tone (sine wave)
+                let sample_rate = 44100.0;
+                let freq = *tone_freq.lock().unwrap();
+                let amp = *tone_amp.lock().unwrap();
+                let time = std::time::SystemTime::now();
+                let elapsed = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                let seconds = elapsed.as_secs_f64();
+                
+                for (i, sample) in data.iter_mut().enumerate() {
+                    let t = seconds + (i as f64 / sample_rate);
+                    *sample = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32 * amp;
+                }
+            };
+            
+            let stream = device.build_output_stream(
+                &config,
+                output_callback,
+                |err| eprintln!("Output stream error: {}", err),
+                None, // timeout
+            )?;
+            
+            self.output_stream = Some(stream);
+        }
+        
+        // Start only the output stream (no input stream to prevent feedback)
+        if let Some(stream) = &self.output_stream {
+            stream.play()?;
+        }
+        
+        self.running.store(true, Ordering::SeqCst);
+        println!("✅ Audio output stream started successfully (input monitoring disabled)");
+        Ok(())
+    }
+
+    /// Set the test tone frequency (temporary audible control)
+    pub fn set_tone_freq(&self, freq_hz: f32) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(mut f) = self.tone_freq.lock() {
+            *f = freq_hz.max(1.0).min(20000.0);
+        }
+        Ok(())
+    }
+
+    /// Set the test tone amplitude (temporary audible control)
+    pub fn set_tone_amp(&self, amp: f32) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(mut a) = self.tone_amp.lock() {
+            *a = amp.clamp(0.0, 1.0);
+        }
         Ok(())
     }
     

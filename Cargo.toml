@@ -39,9 +39,8 @@ egui = "0.27"
 # Bevy game engine for 3D graphics and advanced rendering
 # bevy = { version = "0.17", features = ["dynamic_linking"] }
 
-# VST3 plugin hosting (commented out - not available on crates.io)
-# vst3-sys = "0.2"
-# vst3-host = "0.1"
+# VST3 plugin hosting (temporarily disabled - not available on crates.io)
+# vst3-sys = { git = "https://github.com/RustAudio/vst3-sys" }
 
 # MIDI 2.0 and MPE
 midir = "0.9"
@@ -53,6 +52,12 @@ cpal = "0.15"
 # Crossbeam for thread-safe communication in audio bridge
 crossbeam = "0.8"
 crossbeam-channel = "0.5"
+
+# Web server and WebSocket support
+warp = "0.3"
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [features]
 default = []

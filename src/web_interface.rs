@@ -4,10 +4,14 @@
 //! enabling web-based music production with the same powerful features as the desktop version.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::convert::Infallible;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-// Note: warp dependency would need to be added for full web server functionality
-// For now, this is a placeholder structure for the web interface
+use warp::{Filter, Reply, ws::{Message, WebSocket}};
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::broadcast;
+use uuid::Uuid;
 
 /// Web interface configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,45 +59,247 @@ pub enum WebSocketMessage {
     Error { message: String },
 }
 
+/// Connected WebSocket clients
+type Clients = Arc<Mutex<HashMap<String, broadcast::Sender<String>>>>;
+
 /// Web interface server
 pub struct WebInterfaceServer {
     config: WebInterfaceConfig,
-    // routes: Vec<warp::Filter<impl warp::Reply>>, // Placeholder for future warp integration
+    clients: Clients,
+    broadcast_tx: broadcast::Sender<String>,
 }
 
-// Placeholder implementation - full warp integration would require adding the dependency
 impl WebInterfaceServer {
     pub fn new(config: WebInterfaceConfig) -> Self {
+        let (broadcast_tx, _) = broadcast::channel(1000);
         Self {
             config,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            broadcast_tx,
         }
     }
 
-    // Placeholder for route building - would use warp in full implementation
-    pub fn build_routes(&mut self) -> String {
-        // Return HTML page for now - full server implementation would use warp
-        generate_html_page()
+    /// Build all routes for the web server
+    pub fn build_routes(&self) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
+        let static_files = warp::path("static")
+            .and(warp::fs::dir(self.config.static_files_path.clone()));
+
+        let api_routes = self.build_api_routes();
+        let websocket_route = self.build_websocket_route();
+        let index_route = self.build_index_route();
+
+        static_files
+            .or(api_routes)
+            .or(websocket_route)
+            .or(index_route)
     }
 
-    // Placeholder for API routes - would use warp in full implementation
-    fn build_api_routes(&self) -> String {
-        // Return placeholder - full implementation would use warp
-        "API routes placeholder".to_string()
+    /// Build API routes
+    fn build_api_routes(&self) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
+        let cors = warp::cors()
+            .allow_any_origin()
+            .allow_headers(vec!["content-type"])
+            .allow_methods(vec!["GET", "POST", "PUT", "DELETE"]);
+
+        // Transport control endpoints
+        let play = warp::path!("api" / "transport" / "play")
+            .and(warp::post())
+            .and_then(handle_play);
+
+        let pause = warp::path!("api" / "transport" / "pause")
+            .and(warp::post())
+            .and_then(handle_pause);
+
+        let stop = warp::path!("api" / "transport" / "stop")
+            .and(warp::post())
+            .and_then(handle_stop);
+
+        // Node graph endpoints
+        let create_node = warp::path!("api" / "nodes")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_create_node);
+
+        let delete_node = warp::path!("api" / "nodes" / String)
+            .and(warp::delete())
+            .and_then(handle_delete_node);
+
+        // Parameter endpoints
+        let set_parameter = warp::path!("api" / "parameters" / String / String)
+            .and(warp::put())
+            .and(warp::body::json())
+            .and_then(handle_set_parameter);
+
+        play.or(pause)
+            .or(stop)
+            .or(create_node)
+            .or(delete_node)
+            .or(set_parameter)
+            .with(cors)
     }
 
-    // Placeholder for server start - would use warp in full implementation
+    /// Build WebSocket route
+    fn build_websocket_route(&self) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
+        let clients = self.clients.clone();
+        let broadcast_tx = self.broadcast_tx.clone();
+
+        warp::path("ws")
+            .and(warp::ws())
+            .and(warp::any().map(move || clients.clone()))
+            .and(warp::any().map(move || broadcast_tx.clone()))
+            .and_then(handle_websocket)
+    }
+
+    /// Build index route
+    fn build_index_route(&self) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
+        warp::path::end()
+            .and(warp::get())
+            .and_then(|| async {
+                Ok::<_, warp::Rejection>(warp::reply::html(generate_html_page()))
+            })
+    }
+
+    /// Start the web server
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("HexoDSP Web Interface - Server functionality requires 'warp' dependency");
-        println!("For now, you can save the HTML from build_routes() to a file and open in browser");
-        println!("Configuration: {}:{}", self.config.host, self.config.port);
+        let routes = self.build_routes();
+        
+        println!("🌐 Starting HexoDSP Web Interface");
+        println!("📍 Server: http://{}:{}", self.config.host, self.config.port);
+        println!("🔌 WebSocket: ws://{}:{}/ws", self.config.host, self.config.port);
+        
+        let addr = format!("{}:{}", self.config.host, self.config.port)
+            .parse::<std::net::SocketAddr>()?;
+
+        warp::serve(routes)
+            .run(addr)
+            .await;
+
+        Ok(())
+    }
+
+    /// Broadcast message to all connected clients
+    pub fn broadcast(&self, message: &WebSocketMessage) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(message)?;
+        let _ = self.broadcast_tx.send(json);
         Ok(())
     }
 }
 
-// Placeholder for WebSocket handling - would use warp in full implementation
-async fn handle_websocket_connection_placeholder() -> Result<(), Box<dyn std::error::Error>> {
-    println!("WebSocket connection handling requires 'warp' dependency");
-    Ok(())
+/// Handle WebSocket connections
+async fn handle_websocket(
+    ws: warp::ws::Ws,
+    clients: Clients,
+    broadcast_tx: broadcast::Sender<String>,
+) -> Result<impl Reply, warp::Rejection> {
+    Ok(ws.on_upgrade(move |socket| handle_websocket_connection(socket, clients, broadcast_tx)))
+}
+
+/// Handle individual WebSocket connection
+async fn handle_websocket_connection(
+    ws: WebSocket,
+    clients: Clients,
+    broadcast_tx: broadcast::Sender<String>,
+) {
+    let client_id = Uuid::new_v4().to_string();
+    let (mut ws_tx, mut ws_rx) = ws.split();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+
+    // Add client to the list
+    {
+        let mut clients_lock = clients.lock().unwrap();
+        clients_lock.insert(client_id.clone(), broadcast_tx.clone());
+    }
+
+    println!("🔌 WebSocket client connected: {}", client_id);
+
+    // Handle incoming messages from client
+    let clients_for_incoming = clients.clone();
+    let client_id_for_incoming = client_id.clone();
+    let incoming_task = tokio::spawn(async move {
+        while let Some(result) = ws_rx.next().await {
+            match result {
+                Ok(msg) => {
+                    if let Ok(text) = msg.to_str() {
+                        if let Ok(ws_msg) = serde_json::from_str::<WebSocketMessage>(text) {
+                            if let Err(e) = handle_websocket_message(ws_msg).await {
+                                eprintln!("Error handling WebSocket message: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("WebSocket error: {}", e);
+                    break;
+                }
+            }
+        }
+        
+        // Remove client when connection closes
+        {
+            let mut clients_lock = clients_for_incoming.lock().unwrap();
+            clients_lock.remove(&client_id_for_incoming);
+        }
+        println!("🔌 WebSocket client disconnected: {}", client_id_for_incoming);
+    });
+
+    // Handle outgoing messages to client
+    let outgoing_task = tokio::spawn(async move {
+        while let Ok(msg) = broadcast_rx.recv().await {
+            if ws_tx.send(Message::text(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Wait for either task to complete
+    tokio::select! {
+        _ = incoming_task => {},
+        _ = outgoing_task => {},
+    }
+}
+
+/// Handle transport control - Play
+async fn handle_play() -> Result<impl Reply, warp::Rejection> {
+    println!("🎵 Transport: Play");
+    Ok(warp::reply::json(&serde_json::json!({"status": "playing"})))
+}
+
+/// Handle transport control - Pause
+async fn handle_pause() -> Result<impl Reply, warp::Rejection> {
+    println!("⏸️ Transport: Pause");
+    Ok(warp::reply::json(&serde_json::json!({"status": "paused"})))
+}
+
+/// Handle transport control - Stop
+async fn handle_stop() -> Result<impl Reply, warp::Rejection> {
+    println!("⏹️ Transport: Stop");
+    Ok(warp::reply::json(&serde_json::json!({"status": "stopped"})))
+}
+
+/// Handle node creation
+async fn handle_create_node(node_data: Value) -> Result<impl Reply, warp::Rejection> {
+    println!("🔗 Creating node: {:?}", node_data);
+    let node_id = Uuid::new_v4().to_string();
+    Ok(warp::reply::json(&serde_json::json!({
+        "node_id": node_id,
+        "status": "created"
+    })))
+}
+
+/// Handle node deletion
+async fn handle_delete_node(node_id: String) -> Result<impl Reply, warp::Rejection> {
+    println!("🗑️ Deleting node: {}", node_id);
+    Ok(warp::reply::json(&serde_json::json!({"status": "deleted"})))
+}
+
+/// Handle parameter setting
+async fn handle_set_parameter(
+    node_id: String,
+    param_name: String,
+    value: Value,
+) -> Result<impl Reply, warp::Rejection> {
+    println!("🎛️ Setting parameter {} on node {} to {:?}", param_name, node_id, value);
+    Ok(warp::reply::json(&serde_json::json!({"status": "updated"})))
 }
 
 /// Handle individual WebSocket messages

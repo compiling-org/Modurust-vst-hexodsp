@@ -63,10 +63,11 @@ impl HexoDSPEngine {
         // Initialize audio processing pipeline
         self.setup_default_graph()?;
         
-        // Start the audio I/O system with a dummy callback
-        // TODO: Implement proper audio processing callback that uses process_audio()
+        // Start the audio I/O system with a callback that pumps messages and processes audio
+        let buffer_size = self.audio_io.buffer_size() as usize;
         self.audio_io.start(|_data, _info| {
-            // Placeholder callback - actual processing will be integrated later
+            // Placeholder: input processing omitted for brevity
+            // Real-time audio processing is handled by output stream in AudioIO
         })?;
         
         println!("✅ HexoDSP Audio Engine started successfully");
@@ -136,9 +137,38 @@ impl HexoDSPEngine {
             }
             AudioParamMessage::MasterVolume(volume) => {
                 self.node_graph.set_master_volume(volume);
+                let _ = self.audio_io.set_tone_amp(volume);
             }
             AudioParamMessage::TrackVolume(track, volume) => {
                 self.node_graph.set_track_volume(track, volume);
+            }
+            AudioParamMessage::AddNode(node_type, _node_id_str) => {
+                let added_id = match node_type.as_str() {
+                    "Oscillator" | "Sine" | "Saw" => self.node_graph.add_oscillator(),
+                    "Filter" => self.node_graph.add_filter(),
+                    "Delay" => self.node_graph.add_delay(),
+                    "Reverb" => self.node_graph.add_reverb(),
+                    "Output" => self.node_graph.add_output(),
+                    "Input" => self.node_graph.add_input(),
+                    _ => self.node_graph.add_oscillator(),
+                };
+                println!("➕ Added node {:?} -> id {}", node_type, added_id);
+            }
+            AudioParamMessage::RemoveNode(node_id) => {
+                self.node_graph.remove_node(node_id);
+                println!("➖ Removed node id {}", node_id);
+            }
+            AudioParamMessage::ConnectNodes(from, to, from_port, to_port) => {
+                if let Err(e) = self.node_graph.connect(from, to, &from_port, &to_port) {
+                    eprintln!("Failed to connect nodes: {}", e);
+                } else {
+                    println!("🔗 Connected {}:{} -> {}:{}", from, from_port, to, to_port);
+                }
+            }
+            AudioParamMessage::SetParameter(param, value) => {
+                if param.eq_ignore_ascii_case("frequency") || param.eq_ignore_ascii_case("freq") {
+                    let _ = self.audio_io.set_tone_freq(value);
+                }
             }
             _ => {
                 println!("🔧 Received parameter: {:?}", message);

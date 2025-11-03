@@ -153,3 +153,15 @@
 - **Open Source Libraries**: For foundational components
 
 This comprehensive documentation ensures transparency, reproducibility, and community engagement for the Modurust DAW project, supporting both current usage and future development.
+
+---
+
+## Implementation Status Notes (2025-11)
+
+- **UI ↔ Audio Bridge**: Crossbeam-based bridge in `src/audio_engine/bridge.rs` is active; feedback bus returns transport and meters.
+- **Event Queue for Automation**: `src/event_queue.rs` implements a lock-free time-stamped queue; integration into audio callback pending.
+- **Node View Mapping**: Hexagonal Node View renders nodes/ports; audio engine does not yet create/connect nodes from UI interactions.
+- **Protocol Coverage**: `AudioParamMessage` includes node ops and `SetParameter`, but `HexoDSPEngine` currently handles transport/volume only.
+- **Atomic Parameters**: `NodeInstanceManager` uses `Mutex<f32>`; atomic primitives should be adopted for RT safety.
+- **Time/Pitch Modules**: Phase vocoder and FFT band routing are planned; no `rustfft` modules are wired into `dsp_core` today.
+- **Modu-Commit Workflow**: UI buttons exist; snapshotting/branching logic and storage are future work.
