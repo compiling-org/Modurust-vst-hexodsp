@@ -6,7 +6,8 @@
 use std::f32::consts::PI;
 
 /// Generic DSP module trait that all audio processors implement
-pub trait DSPModule {
+/// Send is required for thread-safe audio processing across threads
+pub trait DSPModule: Send {
     /// Process a block of audio samples
     fn process(&mut self, input: &[f32], output: &mut [f32]);
     

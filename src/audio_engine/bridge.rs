@@ -45,11 +45,13 @@ pub enum AudioParamMessage {
     TrackEffect(usize, usize, String), // (track, effect_slot, effect_type)
     
     // Node graph control
-    AddNode(String, String), // (node_type, node_id)
-    RemoveNode(usize),
-    ConnectNodes(usize, usize, String, String), // (from, to, from_port, to_port)
+    CreateNode(String, String), // (node_type, ui_node_id) - Returns audio_node_id
+    DeleteNode(String), // (ui_node_id)
+    ConnectNodes(String, String, String, String), // (from_ui_id, to_ui_id, from_port, to_port)
+    DisconnectNodes(String, String), // (from_ui_id, to_ui_id)
+    SetNodeParameter(String, String, f32), // (ui_node_id, param_name, value)
     
-    // Generic parameter
+    // Generic parameter (deprecated - use SetNodeParameter)
     SetParameter(String, f32),
     
     // System messages
@@ -83,6 +85,11 @@ pub struct AudioEngineState {
     
     // Real-time parameter values
     pub current_params: HashMap<String, f32>,
+    
+    // Node graph state
+    pub active_nodes: Vec<String>, // UI node IDs currently processing audio
+    pub node_levels: HashMap<String, f32>, // UI node ID -> output level
+    pub node_to_audio_map: HashMap<String, usize>, // UI node ID -> Audio node ID
 }
 
 /// Bridge configuration
@@ -380,13 +387,37 @@ fn generate_test_spectrum() -> Vec<f32> {
 
 /// Build the audio engine with the new bridge system
 pub fn build_hexodsp_engine() -> Result<super::HexoDSPEngine, Box<dyn std::error::Error>> {
-    use super::HexoDSPEngine;
+    use super::{HexoDSPEngine, NodeGraph};
+    use super::node_instance_manager::NodeInstanceManager;
+    use std::sync::{Arc, Mutex};
     
     let mut engine = HexoDSPEngine::new()?;
     
+    // Create separate NodeGraph and AudioEngineBridge for NodeInstanceManager
+    // This is separate from engine.node_graph to avoid ownership issues
+    let node_graph = NodeGraph::new();
+    let bridge_for_manager = AudioEngineBridge::new();
+    
+    // Create NodeInstanceManager for UI ↔ Audio node mapping
+    let node_manager = Arc::new(Mutex::new(NodeInstanceManager::new(node_graph, bridge_for_manager)));
+    let node_manager_clone = Arc::clone(&node_manager);
+    
     // Start the audio engine bridge
-    engine.bridge.start_audio_thread(|message| {
+    engine.bridge.start_audio_thread(move |message| {
+        // Route node operations through NodeInstanceManager
+        let mut manager = node_manager_clone.lock().unwrap();
+        
         match message {
+            // Node-specific operations handled by NodeInstanceManager
+            AudioParamMessage::CreateNode(_, _)
+            | AudioParamMessage::DeleteNode(_)
+            | AudioParamMessage::ConnectNodes(_, _, _, _)
+            | AudioParamMessage::DisconnectNodes(_, _)
+            | AudioParamMessage::SetNodeParameter(_, _, _) => {
+                let _ = manager.process_message(message);
+            }
+            
+            // Transport operations
             AudioParamMessage::SetTempo(bpm) => {
                 println!("🎼 Audio thread: Set BPM to {}", bpm);
                 // In real implementation, this would update the transport
