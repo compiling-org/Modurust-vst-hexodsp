@@ -93,6 +93,8 @@ pub struct UiState {
     pub preset_manager: PresetManager, // Modular content system
     // Theming system
     pub theme_manager: crate::theming_system::ThemeManager,
+    // Modular patch manager
+    pub modular_patch_manager: crate::modular_patch_system::ModularPatchManager,
     // Audio bridge reference for transport controls
     pub audio_bridge: Option<Arc<Mutex<AudioEngineBridge>>>,
     // File browser state
@@ -155,6 +157,7 @@ impl Default for UiState {
             professional_mixer: ProfessionalMixer::default(),
             preset_manager: PresetManager::new(),
             theme_manager: crate::theming_system::ThemeManager::new(),
+            modular_patch_manager: crate::modular_patch_system::ModularPatchManager::new(),
             audio_bridge: None,
             // File browser defaults
             sample_library_path: "C:\\Users\\kapil\\OneDrive\\Documents".to_string(),
