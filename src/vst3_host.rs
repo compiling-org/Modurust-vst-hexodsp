@@ -26,6 +26,7 @@ pub struct VST3Plugin {
 /// VST3 Plugin Information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VST3PluginInfo {
+    pub path: String,
     pub name: String,
     pub vendor: String,
     pub version: String,
@@ -70,6 +71,13 @@ impl VST3Host {
         }
     }
 
+    /// Load a VST3 plugin to a specific track
+    pub fn load_plugin_to_track(&mut self, path: &str, track_id: usize) -> Result<String, Box<dyn std::error::Error>> {
+        println!("🎛️ Loading VST3 plugin: {} to track {}", path, track_id);
+        // For now, just call the existing load_plugin logic
+        self.load_plugin(path)
+    }
+
     /// Initialize the VST3 host
     pub fn initialize(&mut self, sample_rate: f32, max_block_size: usize) -> Result<(), Box<dyn std::error::Error>> {
         self.sample_rate = sample_rate;
@@ -97,6 +105,7 @@ impl VST3Host {
             controller_handle: None,
             processor_handle: None,
             info: VST3PluginInfo {
+                path: path.to_string(),
                 name: "Demo VST3 Plugin".to_string(),
                 vendor: "HexoDSP".to_string(),
                 version: "1.0.0".to_string(),
@@ -282,6 +291,7 @@ impl VST3Host {
                             found_plugins.push(name.to_string());
                             // Record a minimal VST3PluginInfo for UI display
                             self.available_plugins.push(VST3PluginInfo {
+                                path: bundle_path.to_str().unwrap_or_default().to_string(),
                                 name: name.to_string(),
                                 vendor: "Unknown".to_string(),
                                 version: "".to_string(),
@@ -322,6 +332,7 @@ impl VST3Host {
             ];
             for name in demos {
                 self.available_plugins.push(VST3PluginInfo {
+                    path: format!("demo://{}", name),
                     name: format!("{}", name),
                     vendor: "HexoDSP".to_string(),
                     version: "1.0.0".to_string(),

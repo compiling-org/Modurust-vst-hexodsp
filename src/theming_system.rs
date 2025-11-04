@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use eframe::egui::{Color32, FontFamily, FontId, Stroke, Rounding};
+use egui::Color32;
 
 /// Comprehensive theming system inspired by Ableton Live and Bitwig Studio
 /// Provides extensive customization for colors, fonts, and visual elements
@@ -104,7 +104,7 @@ pub struct ChannelColorScheme {
     pub state_colors: ChannelStateColors,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum ChannelCategory {
     Drums,
     Bass,
@@ -414,6 +414,10 @@ impl ThemeManager {
 
     pub fn get_current_theme(&self) -> Option<&Theme> {
         self.themes.get(&self.current_theme)
+    }
+
+    pub fn get_current_theme_mut(&mut self) -> Option<&mut Theme> {
+        self.themes.get_mut(&self.current_theme)
     }
 
     pub fn get_channel_color(&self, channel_index: usize, category: Option<ChannelCategory>) -> ColorRgba {

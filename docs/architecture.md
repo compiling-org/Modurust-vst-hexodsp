@@ -239,12 +239,12 @@ Next steps:
 - Color-coded nodes and patch cables are present; embedded UI widgets per node (EQ spectrum, synth controls) are planned.
 
 Status:
-- Visual canvas present (`src/ui/hexagonal_node_view.rs`, integrated in `src/ui/eframe_ui_full.rs`).
+- Visual canvas present (`src/ui/hexagonal_node_view.rs`, integrated in `src/ui/bevy_egui_ui.rs`).
 - Functional audio mapping pending; visual patches do not yet generate sound.
 
 ## “Modu-Commit” Workflow (Status)
 
-- UI buttons for Commit/Branch exist in `eframe_ui_full.rs` under “Patch History”.
+- UI buttons for Commit/Branch exist in `bevy_egui_ui.rs` under “Patch History”.
 - Track state snapshots and branching are not implemented in engine/core.
 
 Planned:

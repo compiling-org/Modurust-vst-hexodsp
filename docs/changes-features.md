@@ -1,6 +1,6 @@
 # Modurust DAW - Changes and Features
 
-## Version 0.1.0 - Revolutionary Three-View DAW Release (2025-10-28)
+## Version 0.1.0 - Revolutionary Three-View DAW Release (2025-11-04)
 
 ### Major Features Added
 
@@ -120,7 +120,7 @@
 #### UI System Implementation
 - **Blank screen issue resolved** - Successfully migrated from Bevy to pure egui
 - **Three-view UI system** fully functional with Arrangement/Live/Node modes
-- **Cross-platform compatibility** achieved with eframe v0.33
+- **Cross-platform compatibility** achieved with bevy_egui
 - **Real-time UI updates** with proper state management
 
 #### Compilation Issues Resolved

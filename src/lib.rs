@@ -40,11 +40,11 @@ pub mod clip_node_integration;
 // Web interface - browser-based remote control - temporarily commented out
 // pub mod web_interface;
 
-// Modular patch system - NoiseCraft/Pure Data inspired visual programming - temporarily commented out
-// pub mod modular_patch_system;
+// Modular patch system - NoiseCraft/Pure Data inspired visual programming
+pub mod modular_patch_system;
 
-// Theming system - extensive customization options - temporarily commented out
-// pub mod theming_system;
+// Theming system - extensive customization options
+pub mod theming_system;
 
 // Piano roll editor - comprehensive MIDI editing
 pub mod piano_roll_editor;
@@ -52,28 +52,12 @@ pub mod piano_roll_editor;
 // MIDI control system - hardware controller integration
 pub mod midi_control_system;
 
-use eframe::egui;
+// Removed unused egui import
 
-/// Run the HexoDSP UI application
-pub fn run_hexodsp_ui() -> Result<(), eframe::Error> {
-    println!("HexoDSP UI - Full eframe implementation");
-    println!("Three-View System Architecture:");
-    println!("  - Arrangement View: Traditional DAW timeline");
-    println!("  - Live View: Real-time performance interface");
-    println!("  - Node View: Modular node-based patching");
-
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 900.0])
-            .with_title("HexoDSP DAW - Revolutionary Node-Based DAW"),
-        ..Default::default()
-    };
-    
-    eframe::run_native(
-        "HexoDSP DAW",
-        options,
-        Box::new(|_cc| Box::<ui::HexoDSPApp>::default())
-    )
+/// Run the HexoDSP UI application (now Bevy-based; old eframe entry-point removed)
+pub fn run_hexodsp_ui(_ui_state: ui::UiState) -> Result<(), ()> {
+    println!("HexoDSP UI – Bevy 0.17 + bevy_egui path active; use main.rs");
+    Ok(())
 }
 
 // Re-exports for convenience

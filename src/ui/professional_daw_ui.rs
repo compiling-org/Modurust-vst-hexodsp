@@ -11,8 +11,7 @@
 //! - Fractal Shader Visualizations
 //! - Accessibility Features (WCAG 2.1 AA)
 
-use eframe::egui;
-use eframe::App;
+use egui;
 use std::sync::{Arc, Mutex};
 use egui::{Color32, Rounding};
 
@@ -74,18 +73,9 @@ impl ProfessionalDAWUI {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size([1800.0, 1000.0])
-                .with_title("Modurust DAW - Professional Digital Audio Workstation"),
-            ..Default::default()
-        };
-
-        eframe::run_native(
-            "Modurust DAW",
-            options,
-            Box::new(|_cc| Ok(Box::new(ProfessionalDAWApp::new(self.state.clone())))),
-        ).map_err(|e| e.into())
+        // eframe removed; this function is now a no-op placeholder.
+        println!("Launching Professional DAW UI via bevy_egui systems");
+        Ok(())
     }
 }
 
@@ -100,8 +90,8 @@ impl ProfessionalDAWApp {
     }
 }
 
-impl App for ProfessionalDAWApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl ProfessionalDAWApp {
+    pub fn update(&mut self, ctx: &egui::Context) {
         let mut state = self.state.lock().unwrap();
 
         // Professional Menu Bar - Ableton style

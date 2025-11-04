@@ -71,7 +71,7 @@ This document summarizes the successful completion of **Phase 4: Building the Au
 - **Main Entry Point** (`main.rs`): Integrates UI and audio engine
 - **Library Structure** (`lib.rs`): Proper module organization
 - **Dependencies** (`Cargo.toml`): Added crossbeam for thread communication
-- **UI Integration**: eframe UI communicates through audio engine bridge
+- **UI Integration**: bevy_egui UI communicates through audio engine bridge
 
 ---
 
@@ -142,7 +142,7 @@ hexodsp-vst3/src/
 │   ├── transport.rs        # Transport and timing system
 │   └── bridge.rs           # UI/Audio communication
 ├── ui/
-│   └── eframe_ui.rs        # Updated with audio engine integration
+│   └── bevy_egui_ui.rs        # Updated with audio engine integration
 ├── main.rs                 # Application entry point
 └── lib.rs                  # Module exports and organization
 ```
@@ -184,7 +184,7 @@ hexodsp-vst3/src/
 
 The audio engine foundation is now **production-ready** with:
 
-- ✅ **Compilation Errors Fixed**: Complete eframe UI integration
+- ✅ **Compilation Errors Fixed**: Complete bevy_egui UI integration
 - ✅ **Real-Time Performance**: Low-latency audio processing
 - ✅ **Professional Features**: Master bus, transport, effects
 - ✅ **Thread Safety**: Robust UI/Audio communication

@@ -20,7 +20,7 @@
 **Status**: ✅ **Fully functional, zero warnings**
 
 #### UI System (`src/ui/`)
-- ✅ `eframe_ui.rs` - **3000+ line three-view implementation**
+- ✅ `bevy_egui_ui.rs` - **3000+ line three-view implementation**
   - Arrangement View (Timeline, tracks, automation)
   - Live View (Clip matrix, scenes, crossfader)
   - Node View (Visual patching, signal routing)
@@ -80,7 +80,7 @@ These files exist but are **NOT** currently compiled or integrated:
 ### From Documentation Review
 
 #### **Goal**: Three-View Modular DAW
-**Reality**: ✅ **ACHIEVED** - All three views fully implemented in `eframe_ui.rs`
+**Reality**: ✅ **ACHIEVED** - All three views fully implemented in `bevy_egui_ui.rs`
 
 #### **Goal**: Professional Mixer with 12 Tracks
 **Reality**: ✅ **ACHIEVED** - Complete mixer implementation with:

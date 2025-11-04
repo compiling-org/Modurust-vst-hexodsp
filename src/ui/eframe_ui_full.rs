@@ -5,10 +5,12 @@
 /// - Live View: Real-time performance interface
 /// - Node View: Modular node-based patching
 
-use eframe::egui;
+use egui;
 use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use std::fs;
+use serde::{Serialize, Deserialize};
+use serde_json;
 use crate::audio_engine::bridge::{AudioEngineBridge, AudioEngineState, AudioParamMessage};
 use crate::audio_engine::cpal_io::AudioIO;
 use crate::node_instance_manager::NodeInstanceManager;
@@ -26,7 +28,7 @@ use crate::midi_control_system::MidiControlSystem;
 use crate::piano_roll_editor::{PianoRollEditor, GridResolution};
 
 /// UI View Modes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum UIViewMode {
     #[default]
     Arrangement,
@@ -54,8 +56,18 @@ pub enum FileType {
     Other,
 }
 
+/// VST3 Plugin Sorting Mode
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum VST3Sort {
+    Alphabetical,
+    Vendor,
+    Category,
+}
+
 /// Main UI State
 #[derive(Clone)]
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct UiState {
     pub current_view: UIViewMode,
     pub show_transport: bool,
@@ -88,24 +100,33 @@ pub struct UiState {
     pub master_lim_ceiling: f32,
     pub link_channels: bool,
     pub show_levels: bool,
+    #[serde(skip)]
     pub track_channels: Vec<ChannelState>, // State for individual tracks
+    #[serde(skip)]
     pub professional_mixer: ProfessionalMixer, // Enhanced professional mixer
+    #[serde(skip)]
     pub preset_manager: PresetManager, // Modular content system
     // Theming system
     pub theme_manager: crate::theming_system::ThemeManager,
     // Modular patch manager
+    #[serde(skip)]
     pub modular_patch_manager: crate::modular_patch_system::ModularPatchManager,
     // Audio bridge reference for transport controls
+    #[serde(skip)]
     pub audio_bridge: Option<Arc<Mutex<AudioEngineBridge>>>,
     // File browser state
     pub sample_library_path: String,
     pub current_browser_path: String,
+    #[serde(skip)]
     pub browser_files: Vec<FileItem>,
     pub selected_file: Option<String>,
     pub show_file_browser: bool,
     // New comprehensive systems - temporarily commented out
+    #[serde(skip)]
     pub vst3_host: VST3Host,
+    #[serde(skip)]
     pub midi_control_system: MidiControlSystem,
+    #[serde(skip)]
     pub piano_roll_editor: PianoRollEditor,
     // pub midi2_processor: Midi2Processor,
     // pub web_server: Option<WebInterfaceServer>,
@@ -113,6 +134,10 @@ pub struct UiState {
     // pub theme_manager: ThemeManager,
     // pub piano_roll_editor: PianoRollEditor,
     pub show_vst3_browser: bool,
+    pub vst3_search: String,
+    pub vst3_sort_alpha: bool,
+    pub vst3_sort_mode: VST3Sort,
+    pub vst3_selected_track: usize,
     pub show_midi_control: bool,
     pub show_piano_roll: bool,
     pub show_modular_patches: bool,
@@ -174,6 +199,10 @@ impl Default for UiState {
             piano_roll_editor: PianoRollEditor::new("Main Piano Roll".to_string()),
             midi_control_system: MidiControlSystem::new(),
             show_vst3_browser: false,
+            vst3_search: String::new(),
+            vst3_sort_alpha: true,
+            vst3_sort_mode: VST3Sort::Alphabetical,
+            vst3_selected_track: 0,
             show_midi_control: false,
             show_piano_roll: false,
             show_modular_patches: false,
@@ -195,7 +224,7 @@ impl Default for UiState {
         }
 
         // Initialize new systems - temporarily commented out
-        default_state.vst3_host.scan_plugins();
+        let _ = default_state.vst3_host.scan_plugins();
         // let _ = default_state.midi_control_system.scan_devices();
 
         default_state
@@ -889,6 +918,12 @@ pub struct HexoDSPApp {
 
 impl Default for HexoDSPApp {
     fn default() -> Self {
+        Self::new_with_state(UiState::default())
+    }
+}
+
+impl HexoDSPApp {
+    pub fn new_with_state(ui_state: UiState) -> Self {
         // TEMPORARILY DISABLE ALL AUDIO TO STOP FEEDBACK - UI ONLY MODE
         // TODO: Implement proper audio system without feedback
         println!("🔇 AUDIO DISABLED - UI ONLY MODE TO PREVENT FEEDBACK");
@@ -921,50 +956,7 @@ impl Default for HexoDSPApp {
     }
 }
 
-impl eframe::App for HexoDSPApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply parameter messages to AudioIO from bridge on UI thread
-        if let Ok(mut bridge) = self.audio_bridge.lock() {
-            while let Some(message) = bridge.receive_param() {
-                match message {
-                    AudioParamMessage::MasterVolume(v) => {
-                        let _ = self.audio_io.lock().unwrap().set_tone_amp(v);
-                    }
-                    AudioParamMessage::SetParameter(param, value) => {
-                        if param.eq_ignore_ascii_case("frequency") || param.eq_ignore_ascii_case("freq") {
-                            let _ = self.audio_io.lock().unwrap().set_tone_freq(value);
-                        }
-                    }
-                    AudioParamMessage::SetTempo(bpm) => {
-                        println!("Set tempo to {} BPM", bpm);
-                    }
-                    AudioParamMessage::Play => {
-                        println!("Transport: Play");
-                    }
-                    AudioParamMessage::Stop => {
-                        println!("Transport: Stop");
-                    }
-                    AudioParamMessage::Record => {
-                        println!("Transport: Record");
-                    }
-                    other => {
-                        println!("Param received: {:?}", other);
-                    }
-                }
-            }
-
-            // Poll audio feedback and drive node/clip integration
-            if let Some(state) = bridge.receive_feedback() {
-                if let Ok(mut nm) = self.node_manager.lock() {
-                    nm.update_from_engine_state(&state);
-                }
-                self.clip_integration.update_position(state.time_position, state.playing);
-            }
-        }
-
-        ui_system(ctx, &mut self.ui_state, &mut self.arrangement_state, &mut self.live_state, &mut self.node_state);
-    }
-}
+// Removed eframe::App implementation; UI is driven via egui contexts without eframe.
 
 /// Renders the DAW's main timeline/arrangement view.
 fn arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
@@ -1014,7 +1006,10 @@ fn node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
     // Canvas area: draw the hexagonal node view
     let available = ui.available_size();
     let canvas_rect = egui::Rect::from_min_size(ui.cursor().min, available);
+
+    // Draw node canvas directly; drag-and-drop integration will be wired via bevy_egui systems.
     state.hex.draw(ui, canvas_rect);
+
     ui.allocate_rect(canvas_rect, egui::Sense::click());
 }
 
@@ -1219,6 +1214,8 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 }
 
                 for file in &ui_state.browser_files.clone() {
+                    let id = ui.make_persistent_id(&file.path);
+                    // Removed egui::DragAndDrop::drag_source; render row directly.
                     ui.horizontal(|ui| {
                         // File type icon
                         let icon = match file.file_type {
@@ -1236,27 +1233,28 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                         if response.clicked() {
                             if file.is_directory {
-                                ui_state.navigate_to(&file.path);
-                            } else {
-                                ui_state.selected_file = Some(file.name.clone());
-                                println!("🎯 Selected file: {}", file.path.display());
-                            }
-                        }
-
-                        // Show file size for files
-                        if let Some(size) = file.size {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let size_str = if size > 1024 * 1024 {
-                                    format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
-                                } else if size > 1024 {
-                                    format!("{:.1} KB", size as f64 / 1024.0)
+                                    ui_state.navigate_to(&file.path);
                                 } else {
-                                    format!("{} B", size)
-                                };
-                                ui.label(egui::RichText::new(size_str).small().weak());
-                            });
-                        }
-                    });
+                                    ui_state.selected_file = Some(file.name.clone());
+                                    println!("🎯 Selected file: {}", file.path.display());
+                                }
+                            }
+
+                            // Show file size for files
+                            if let Some(size) = file.size {
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let size_str = if size > 1024 * 1024 {
+                                        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+                                    } else if size > 1024 {
+                                        format!("{:.1} KB", size as f64 / 1024.0)
+                                    } else {
+                                        format!("{} B", size)
+                                    };
+                                    ui.label(egui::RichText::new(size_str).small().weak());
+                                });
+                            }
+                        });
+                    // Drag-and-drop removed; no payload handling.
                 }
 
                 if ui_state.browser_files.is_empty() {
@@ -1304,14 +1302,22 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                         PresetCategory::Utilities => "⚙️",
                                         PresetCategory::Custom => "🎨",
                                     };
-                                    
-                                    // Draggable preset button
+
+                                    // Clickable preset button (adds to Node canvas)
                                     let response = ui.button(format!("{} {}", icon, preset.name));
-                                    
+
                                     if response.clicked() {
-                                        println!("🎯 Selected preset: {} ({})", preset.name, preset.description);
+                                        // Add the library preset (supporting multi-node patches) to the canvas
+                                        add_library_preset_to_canvas(node_state, preset);
+                                        // Jump to Node view so the user sees the new nodes immediately
+                                        ui_state.current_view = UIViewMode::Node;
+                                        println!(
+                                            "✅ Added preset to canvas: {} (nodes: {})",
+                                            preset.name,
+                                            preset.nodes.len()
+                                        );
                                     }
-                                    
+
                                     // TODO: Implement drag-and-drop functionality
                                     if response.hovered() {
                                         response.on_hover_text(&preset.description);
@@ -2257,33 +2263,118 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
         }
     });
 
-    // VST3 Plugin Browser Window
+    // VST3 Plugin Browser Side Panel (refactored from floating window)
     if ui_state.show_vst3_browser {
-        egui::Window::new("🎛️ VST3 Plugin Browser")
-            .default_size([400.0, 600.0])
-            .show(ctx, |ui| {
-                ui.heading("VST3 Plugins");
-                
-                ui.horizontal(|ui| {
-                    if ui.button("🔄 Rescan").clicked() {
-                        ui_state.vst3_host.scan_plugins();
-                    }
-                    ui.label(format!("Found {} plugins", ui_state.vst3_host.get_plugin_count()));
-                });
-                
-                ui.separator();
-                
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for plugin in ui_state.vst3_host.get_plugins() {
-                        ui.horizontal(|ui| {
-                            ui.label(&plugin.name);
-                            if ui.button("Load").clicked() {
-                                println!("Loading VST3 plugin: {}", plugin.name);
-                            }
-                        });
-                    }
-                });
+        egui::SidePanel::right("vst3_browser").show(ctx, |ui| {
+            ui.set_min_width(320.0);
+            ui.heading("🎛️ VST3 Plugins");
+
+            ui.horizontal(|ui| {
+                if ui.button("🔄 Rescan").clicked() {
+                    let _ = ui_state.vst3_host.scan_plugins();
+                }
+                ui.label(format!("Found {} plugins", ui_state.vst3_host.get_plugin_count()));
             });
+
+            ui.horizontal(|ui| {
+                ui.label("🔎");
+                ui.text_edit_singleline(&mut ui_state.vst3_search)
+                    .on_hover_text("Filter by name, vendor, or category");
+                ui.checkbox(&mut ui_state.vst3_sort_alpha, "A–Z");
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Sort by:");
+                ui.selectable_value(&mut ui_state.vst3_sort_mode, VST3Sort::Alphabetical, "A-Z");
+                ui.selectable_value(&mut ui_state.vst3_sort_mode, VST3Sort::Vendor, "Vendor");
+                ui.selectable_value(&mut ui_state.vst3_sort_mode, VST3Sort::Category, "Category");
+            });
+
+            egui::ComboBox::from_label("Load to Track")
+                .selected_text(format!("Track {}", ui_state.vst3_selected_track + 1))
+                .show_ui(ui, |ui| {
+                    for i in 0..12 {
+                        ui.selectable_value(&mut ui_state.vst3_selected_track, i, format!("Track {}", i + 1));
+                    }
+                });
+
+            ui.separator();
+
+            // Prepare filtered/sorted list
+            let mut plugins: Vec<_> = ui_state
+                .vst3_host
+                .get_plugins()
+                .iter()
+                .filter(|p| {
+                    if ui_state.vst3_search.trim().is_empty() { return true; }
+                    let q = ui_state.vst3_search.to_lowercase();
+                    p.name.to_lowercase().contains(&q)
+                        || p.vendor.to_lowercase().contains(&q)
+                        || p.category.to_lowercase().contains(&q)
+                })
+                .cloned()
+                .collect();
+
+            // Group and sort based on the selected mode
+            match ui_state.vst3_sort_mode {
+                VST3Sort::Alphabetical => {
+                    if ui_state.vst3_sort_alpha {
+                        plugins.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                    }
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for plugin in plugins.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label(&plugin.name);
+                                if ui.small_button("Load").clicked() {
+                                    let _ = ui_state.vst3_host.load_plugin_to_track(&plugin.path, ui_state.vst3_selected_track);
+                                }
+                            });
+                            ui.small(
+                                egui::RichText::new(format!("{} • {}", plugin.vendor, plugin.category))
+                                    .italics()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.separator();
+                        }
+                    });
+                }
+                VST3Sort::Vendor | VST3Sort::Category => {
+                    let mut grouped: std::collections::BTreeMap<String, Vec<_>> = std::collections::BTreeMap::new();
+                    for plugin in plugins {
+                        let key = if ui_state.vst3_sort_mode == VST3Sort::Vendor {
+                            plugin.vendor.clone()
+                        } else {
+                            plugin.category.clone()
+                        };
+                        grouped.entry(key).or_default().push(plugin);
+                    }
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (group_name, mut group_plugins) in grouped {
+                            if ui_state.vst3_sort_alpha {
+                                group_plugins.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                            }
+                            ui.collapsing(group_name, |ui| {
+                                for plugin in group_plugins {
+                                    ui.horizontal(|ui| {
+                                        ui.label(&plugin.name);
+                                        if ui.small_button("Load").clicked() {
+                                            let _ = ui_state.vst3_host.load_plugin_to_track(&plugin.path, ui_state.vst3_selected_track);
+                                        }
+                                    });
+                                    ui.small(
+                                        egui::RichText::new(format!("{} • {}", plugin.vendor, plugin.category))
+                                            .italics()
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                    ui.separator();
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
     }
 
     // MIDI Control System Window
@@ -2475,7 +2566,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     columns[1].heading("Current Patch");
                     egui::ScrollArea::vertical().show(&mut columns[1], |ui| {
                         if let Some(current_patch) = ui_state.modular_patch_manager.get_current_patch() {
-                            ui.label(format!("Name: {}", current_patch.metadata.name));
+                            ui.label(format!("Name: {}", current_patch.name));
                             ui.label(format!("Nodes: {}", current_patch.nodes.len()));
                             ui.label(format!("Connections: {}", current_patch.connections.len()));
                         } else {
@@ -2495,55 +2586,141 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 
                 ui.horizontal(|ui| {
                     if ui.button("Dark Professional").clicked() {
-                        ui_state.theme_manager.set_current_theme("Dark Professional".to_string());
+                        let _ = ui_state.theme_manager.set_current_theme("Dark Professional");
                     }
                     if ui.button("Light Studio").clicked() {
-                        ui_state.theme_manager.set_current_theme("Light Studio".to_string());
+                        let _ = ui_state.theme_manager.set_current_theme("Light Studio");
                     }
                     if ui.button("Neon").clicked() {
-                        ui_state.theme_manager.set_current_theme("Neon".to_string());
+                        let _ = ui_state.theme_manager.set_current_theme("Neon");
                     }
                 });
                 
                 ui.separator();
                 
-                if let Some(current_theme) = ui_state.theme_manager.get_current_theme() {
-                    ui.label(format!("Current Theme: {}", current_theme.name));
-                    
+                // Avoid borrow conflicts: clone data from manager before mutably borrowing theme
+                let available_fonts = ui_state.theme_manager.font_settings.available_fonts.clone();
+                let palettes = ui_state.theme_manager.color_palettes.clone();
+                if let Some(theme) = ui_state.theme_manager.get_current_theme_mut() {
+                    ui.label(format!("Current Theme: {}", theme.name));
+
                     ui.collapsing("🎨 Colors", |ui| {
                         ui.label("Background:");
-                        ui.horizontal(|ui| {
-                            ui.color_edit_button_rgba_unmultiplied(&mut [
-                                current_theme.colors.background.r,
-                                current_theme.colors.background.g,
-                                current_theme.colors.background.b,
-                                current_theme.colors.background.a,
-                            ]);
-                        });
-                        
-                        ui.label("Primary:");
-                        ui.horizontal(|ui| {
-                            ui.color_edit_button_rgba_unmultiplied(&mut [
-                                current_theme.colors.primary.r,
-                                current_theme.colors.primary.g,
-                                current_theme.colors.primary.b,
-                                current_theme.colors.primary.a,
-                            ]);
-                        });
+                        let mut bg = [
+                            theme.colors.background_primary.r,
+                            theme.colors.background_primary.g,
+                            theme.colors.background_primary.b,
+                            theme.colors.background_primary.a,
+                        ];
+                        if ui.color_edit_button_rgba_unmultiplied(&mut bg).changed() {
+                            theme.colors.background_primary.r = bg[0];
+                            theme.colors.background_primary.g = bg[1];
+                            theme.colors.background_primary.b = bg[2];
+                            theme.colors.background_primary.a = bg[3];
+                        }
+
+                        ui.label("Primary Accent:");
+                        let mut acc = [
+                            theme.colors.accent_primary.r,
+                            theme.colors.accent_primary.g,
+                            theme.colors.accent_primary.b,
+                            theme.colors.accent_primary.a,
+                        ];
+                        if ui.color_edit_button_rgba_unmultiplied(&mut acc).changed() {
+                            theme.colors.accent_primary.r = acc[0];
+                            theme.colors.accent_primary.g = acc[1];
+                            theme.colors.accent_primary.b = acc[2];
+                            theme.colors.accent_primary.a = acc[3];
+                        }
+
+                        ui.label("Focus Ring:");
+                        let mut focus = [
+                            theme.colors.focus_ring.r,
+                            theme.colors.focus_ring.g,
+                            theme.colors.focus_ring.b,
+                            theme.colors.focus_ring.a,
+                        ];
+                        if ui.color_edit_button_rgba_unmultiplied(&mut focus).changed() {
+                            theme.colors.focus_ring.r = focus[0];
+                            theme.colors.focus_ring.g = focus[1];
+                            theme.colors.focus_ring.b = focus[2];
+                            theme.colors.focus_ring.a = focus[3];
+                        }
                     });
-                    
+
                     ui.collapsing("📝 Typography", |ui| {
                         ui.label("Font Scale:");
                         ui.add(egui::Slider::new(&mut ui_state.font_scale, 0.8..=2.0));
+
+                        ui.label("Primary Font:");
+                        let available = &available_fonts;
+                        let mut selected = theme.typography.font_families.primary.clone();
+                        egui::ComboBox::from_label("")
+                            .selected_text(&selected)
+                            .show_ui(ui, |ui| {
+                                for f in available {
+                                    ui.selectable_value(&mut selected, f.clone(), f);
+                                }
+                            });
+                        if selected != theme.typography.font_families.primary {
+                            theme.typography.font_families.primary = selected;
+                        }
                     });
-                    
+
                     ui.collapsing("🎵 Channel Colors", |ui| {
-                        for (i, color) in current_theme.channel_colors.iter().enumerate() {
+                        for (i, color) in theme.channel_colors.default_colors.iter_mut().enumerate() {
+                            let mut rgba = [color.r, color.g, color.b, color.a];
                             ui.horizontal(|ui| {
                                 ui.label(format!("Track {}:", i + 1));
-                                ui.color_edit_button_rgba_unmultiplied(&mut [
-                                    color.r, color.g, color.b, color.a
-                                ]);
+                                if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+                                    color.r = rgba[0]; color.g = rgba[1]; color.b = rgba[2]; color.a = rgba[3];
+                                }
+                            });
+                        }
+
+                        ui.separator();
+                        ui.label("Apply Palette:");
+                        let palette_names: Vec<String> = palettes.keys().cloned().collect();
+                        let mut selected = palette_names.first().cloned().unwrap_or_else(|| "Ableton".to_string());
+                        egui::ComboBox::from_label("Palette")
+                            .selected_text(&selected)
+                            .show_ui(ui, |ui| {
+                                for name in &palette_names {
+                                    ui.selectable_value(&mut selected, name.clone(), name);
+                                }
+                            });
+                        if ui.button("Apply to Tracks").clicked() {
+                            if let Some(p) = palettes.get(&selected) {
+                                theme.channel_colors.default_colors = p.colors.clone();
+                            }
+                        }
+                    });
+
+                    ui.collapsing("🎼 Sample Colors", |ui| {
+                        use crate::theming_system::SampleType;
+                        let sample_types = [
+                            SampleType::Kick,
+                            SampleType::Snare,
+                            SampleType::HiHat,
+                            SampleType::Cymbal,
+                            SampleType::Tom,
+                            SampleType::Percussion,
+                            SampleType::Bass,
+                            SampleType::Lead,
+                            SampleType::Pad,
+                            SampleType::Vocal,
+                            SampleType::FX,
+                            SampleType::Loop,
+                            SampleType::OneShot,
+                        ];
+                        for ty in sample_types.iter() {
+                            let entry = theme.sample_colors.by_type.entry(ty.clone()).or_insert(crate::theming_system::ColorRgba::from_hex("#666666"));
+                            let mut rgba = [entry.r, entry.g, entry.b, entry.a];
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{:?}", ty));
+                                if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+                                    entry.r = rgba[0]; entry.g = rgba[1]; entry.b = rgba[2]; entry.a = rgba[3];
+                                }
                             });
                         }
                     });
@@ -2555,13 +2732,38 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 fn apply_theme(ctx: &egui::Context, ui_state: &UiState) {
     let mut visuals = if ui_state.dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() };
     visuals.dark_mode = ui_state.dark_mode;
-    // Simple background brightness tweak for perceived contrast
-    let base_gray = if ui_state.dark_mode {
-        (20.0 + (ui_state.contrast - 1.0) * 60.0).clamp(0.0, 255.0)
+
+    // Apply colors from ThemeManager when available
+    if let Some(theme) = ui_state.theme_manager.get_current_theme() {
+        // Backgrounds and surfaces
+        visuals.panel_fill = theme.colors.background_primary.to_color32();
+        visuals.window_fill = theme.colors.surface_primary.to_color32();
+        visuals.extreme_bg_color = theme.colors.background_tertiary.to_color32();
+
+        // Selection and focus
+        visuals.selection.bg_fill = theme.colors.selection_primary.to_color32();
+        visuals.selection.stroke.color = theme.colors.focus_ring.to_color32();
+
+        // Widgets
+        visuals.widgets.inactive.bg_fill = theme.colors.surface_secondary.to_color32();
+        visuals.widgets.hovered.bg_fill = theme.colors.button_hover.to_color32();
+        visuals.widgets.active.bg_fill = theme.colors.accent_primary.to_color32();
+        visuals.widgets.open.bg_fill = theme.colors.surface_elevated.to_color32();
+        visuals.widgets.inactive.fg_stroke.color = theme.colors.text_primary.to_color32();
+        visuals.widgets.hovered.fg_stroke.color = theme.colors.text_accent.to_color32();
+        visuals.widgets.active.fg_stroke.color = theme.colors.focus_ring.to_color32();
+
+        // Hyperlinks and accents
+        visuals.hyperlink_color = theme.colors.accent_secondary.to_color32();
     } else {
-        (200.0 - (ui_state.contrast - 1.0) * 60.0).clamp(0.0, 255.0)
-    } as u8;
-    visuals.panel_fill = egui::Color32::from_gray(base_gray);
+        // Fallback contrast tweak when no theme available
+        let base_gray = if ui_state.dark_mode {
+            (20.0 + (ui_state.contrast - 1.0) * 60.0).clamp(0.0, 255.0)
+        } else {
+            (200.0 - (ui_state.contrast - 1.0) * 60.0).clamp(0.0, 255.0)
+        } as u8;
+        visuals.panel_fill = egui::Color32::from_gray(base_gray);
+    }
 
     let mut style = (*ctx.style()).clone();
     style.visuals = visuals;
@@ -2784,15 +2986,16 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                         egui::Sense::click_and_drag()
                     );
 
-                    // Draw timeline background
-                    ui.painter().rect_filled(rect, 2.0, egui::Color32::from_gray(24));
+                    // Draw timeline background using themed visuals
+                    let visuals = ui.style().visuals.clone();
+                    ui.painter().rect_filled(rect, 2.0, visuals.window_fill);
 
                     // Draw bar lines
                     for bar in 0..32 {
                         let x = rect.left() + (bar as f32 * 100.0);
                         ui.painter().line_segment(
                             [egui::Pos2::new(x, rect.top()), egui::Pos2::new(x, rect.bottom())],
-                            egui::Stroke::new(2.0, egui::Color32::from_gray(64))
+                            egui::Stroke::new(2.0, visuals.widgets.inactive.fg_stroke.color.linear_multiply(0.6))
                         );
                     }
 
@@ -2801,7 +3004,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                         let x = rect.left() + (beat as f32 * 25.0);
                         ui.painter().line_segment(
                             [egui::Pos2::new(x, rect.top()), egui::Pos2::new(x, rect.bottom())],
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(48))
+                            egui::Stroke::new(1.0, visuals.widgets.inactive.fg_stroke.color.linear_multiply(0.5))
                         );
                     }
 
@@ -2812,14 +3015,14 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Pos2::new(rect.left() + 25.0, rect.top() + 10.0),
                             egui::Vec2::new(75.0, 50.0)
                         );
-                        ui.painter().rect_filled(clip_rect, 4.0, egui::Color32::from_rgb(100, 150, 200));
-                        ui.painter().rect_stroke(clip_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        ui.painter().rect_filled(clip_rect, 4.0, visuals.widgets.inactive.bg_fill);
+                        ui.painter().rect_stroke(clip_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
                         ui.painter().text(
                             clip_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "Kick",
                             egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
+                            visuals.text_color()
                         );
 
                         // Clip editing controls (hover overlay)
@@ -2827,13 +3030,13 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Pos2::new(clip_rect.right() - 60.0, clip_rect.top() - 20.0),
                             egui::Vec2::new(60.0, 15.0)
                         );
-                        ui.painter().rect_filled(control_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 180));
+                        ui.painter().rect_filled(control_rect, 2.0, visuals.extreme_bg_color.gamma_multiply(0.8));
                         ui.painter().text(
                             control_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "✂️📋🗑️",
                             egui::FontId::proportional(10.0),
-                            egui::Color32::WHITE
+                            visuals.text_color()
                         );
 
                         // Snare clip
@@ -2841,14 +3044,14 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Pos2::new(rect.left() + 125.0, rect.top() + 10.0),
                             egui::Vec2::new(75.0, 50.0)
                         );
-                        ui.painter().rect_filled(snare_rect, 4.0, egui::Color32::from_rgb(200, 100, 100));
-                        ui.painter().rect_stroke(snare_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        ui.painter().rect_filled(snare_rect, 4.0, visuals.widgets.inactive.bg_fill);
+                        ui.painter().rect_stroke(snare_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
                         ui.painter().text(
                             snare_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "Snare",
                             egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
+                            visuals.text_color()
                         );
                     }
 
@@ -2858,21 +3061,21 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Pos2::new(rect.left() + 0.0, rect.top() + 10.0),
                             egui::Vec2::new(200.0, 50.0)
                         );
-                        ui.painter().rect_filled(bass_rect, 4.0, egui::Color32::from_rgb(100, 200, 100));
-                        ui.painter().rect_stroke(bass_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        ui.painter().rect_filled(bass_rect, 4.0, visuals.widgets.inactive.bg_fill);
+                        ui.painter().rect_stroke(bass_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
                         ui.painter().text(
                             bass_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "Bass Line",
                             egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
+                            visuals.text_color()
                         );
 
                         // Fade in/out handles
                         let fade_in_handle = egui::Pos2::new(bass_rect.left() + 10.0, bass_rect.top() + 25.0);
-                        ui.painter().circle_filled(fade_in_handle, 4.0, egui::Color32::from_rgb(255, 255, 100));
+                        ui.painter().circle_filled(fade_in_handle, 4.0, visuals.hyperlink_color);
                         let fade_out_handle = egui::Pos2::new(bass_rect.right() - 10.0, bass_rect.top() + 25.0);
-                        ui.painter().circle_filled(fade_out_handle, 4.0, egui::Color32::from_rgb(255, 255, 100));
+                        ui.painter().circle_filled(fade_out_handle, 4.0, visuals.hyperlink_color);
                     }
 
                     if track_num == 5 {
@@ -2881,14 +3084,14 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Pos2::new(rect.left() + 50.0, rect.top() + 10.0),
                             egui::Vec2::new(150.0, 50.0)
                         );
-                        ui.painter().rect_filled(midi_rect, 4.0, egui::Color32::from_rgb(150, 100, 200));
-                        ui.painter().rect_stroke(midi_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        ui.painter().rect_filled(midi_rect, 4.0, visuals.widgets.inactive.bg_fill);
+                        ui.painter().rect_stroke(midi_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
                         ui.painter().text(
                             midi_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "Chord Prog",
                             egui::FontId::proportional(12.0),
-                            egui::Color32::BLACK
+                            visuals.text_color()
                         );
 
                         // Mini piano roll visualization
@@ -2901,7 +3104,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                                     egui::Vec2::new(note_width, 3.0)
                                 ),
                                 1.0,
-                                egui::Color32::from_rgb(255, 255, 255)
+                                visuals.widgets.hovered.fg_stroke.color
                             );
                         }
                     }
@@ -2911,7 +3114,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                         let automation_y = rect.top() + 70.0;
                         ui.painter().line_segment(
                             [egui::Pos2::new(rect.left(), automation_y), egui::Pos2::new(rect.right(), automation_y)],
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(150, 150, 150))
+                            egui::Stroke::new(1.0, visuals.selection.stroke.color)
                         );
 
                         // Draw automation curves for this track
@@ -3103,9 +3306,15 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
             });
 
             // Waveform display placeholder
-            ui.allocate_response(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
-    ui.painter().rect_filled(ui.max_rect(), egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
-            ui.label("🎵 Waveform Display");
+            let (resp, painter) = ui.allocate_painter(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
+            painter.rect_filled(resp.rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
+            painter.text(
+                resp.rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "🎵 Waveform",
+                egui::FontId::proportional(12.0),
+                egui::Color32::WHITE,
+            );
 
             // Hot Cues (CDJ style)
             ui.horizontal(|ui| {
@@ -3215,9 +3424,15 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
             });
 
             // Waveform display placeholder
-            ui.allocate_response(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
-    ui.painter().rect_filled(ui.max_rect(), egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
-            ui.label("🎵 Waveform Display");
+            let (resp, painter) = ui.allocate_painter(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
+            painter.rect_filled(resp.rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
+            painter.text(
+                resp.rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "🎵 Waveform",
+                egui::FontId::proportional(12.0),
+                egui::Color32::WHITE,
+            );
 
             // Hot Cues (CDJ style)
             ui.horizontal(|ui| {
@@ -4512,19 +4727,69 @@ pub fn run_hexodsp_ui() -> Result<(), Box<dyn std::error::Error>> {
     println!("  - Live View: Real-time performance interface");
     println!("  - Node View: Modular node-based patching");
 
-    // Create eframe app with native window
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 900.0])
-            .with_title("HexoDSP DAW - Revolutionary Node-Based DAW"),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "HexoDSP DAW",
-        options,
-        Box::new(|_cc| Box::<HexoDSPApp>::default()),
-    )?;
+    // eframe removed; UI will be driven by bevy_egui systems.
+    println!("Using bevy_egui path");
 
     Ok(())
+}
+
+/// Add a library preset (from `crate::presets`) to the Node canvas,
+/// creating all nodes and connections described by the preset.
+fn add_library_preset_to_canvas(state: &mut NodeViewState, preset: &crate::presets::NodePreset) {
+    // Map preset node index -> generated node id
+    let mut id_map: Vec<String> = Vec::new();
+
+    // Add nodes
+    for node_cfg in &preset.nodes {
+        let id = format!(
+            "{}_{}",
+            node_cfg.node_type.replace('.', "_"),
+            state.node_positions.len()
+        );
+        id_map.push(id.clone());
+
+        let (x, y) = node_cfg.position;
+        let params: Vec<NodeParameter> = node_cfg
+            .parameters
+            .iter()
+            .map(|p| NodeParameter {
+                name: p.name.clone(),
+                value: p.default,
+                min: p.min,
+                max: p.max,
+                modulated: false,
+            })
+            .collect();
+
+        state.node_positions.push(NodePosition {
+            id,
+            node_type: node_cfg.node_type.clone(),
+            x,
+            y,
+            selected: false,
+            parameters: params,
+        });
+    }
+
+    // Add connections
+    for conn in &preset.connections {
+        let id = format!("conn_{}", state.connections.len());
+        let from_id = id_map
+            .get(conn.from_node)
+            .cloned()
+            .unwrap_or_else(|| format!("node{}", conn.from_node));
+        let to_id = id_map
+            .get(conn.to_node)
+            .cloned()
+            .unwrap_or_else(|| format!("node{}", conn.to_node));
+
+        state.connections.push(NodeConnection {
+            id,
+            from_node: from_id,
+            from_port: conn.from_output.clone(),
+            to_node: to_id,
+            to_port: conn.to_input.clone(),
+            data_type: "audio".to_string(),
+        });
+    }
 }

@@ -6,9 +6,8 @@
 //! - Node View: Modular node-based patching
 
 // Declare the submodules
-mod eframe_ui;
+
 mod eframe_ui_full;
-mod theme_manager;
 pub mod hexagonal_node_view;
 
 // Re-export the full-featured eframe UI implementation

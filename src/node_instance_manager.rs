@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
 use crate::audio_engine::bridge::{AudioParamMessage, AudioEngineState, AudioEngineBridge};
-use crate::audio_engine::node_graph::NodeGraph;
+// Removed unused NodeGraph import
 
 /// Unique identifier for node instances
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -111,7 +111,7 @@ impl NodeInstanceManager {
         
         // Send message to audio engine to create the actual DSP node
         if let Ok(bridge) = self.bridge.lock() {
-            let _ = bridge.send_param(AudioParamMessage::AddNode(
+            let _ = bridge.send_param(AudioParamMessage::CreateNode(
                 node_type.to_string(),
                 id.0.to_string(),
             ));
@@ -123,11 +123,9 @@ impl NodeInstanceManager {
     /// Remove a node instance
     pub fn remove_node(&mut self, id: NodeInstanceId) -> bool {
         if let Some(node) = self.nodes.remove(&id) {
-            // Send message to audio engine to remove the DSP node
-            if let Some(index) = node.dsp_node_index {
-                if let Ok(bridge) = self.bridge.lock() {
-                    let _ = bridge.send_param(AudioParamMessage::RemoveNode(index));
-                }
+            // Send message to audio engine to remove the DSP node via UI id
+            if let Ok(bridge) = self.bridge.lock() {
+                let _ = bridge.send_param(AudioParamMessage::DeleteNode(id.0.to_string()));
             }
             true
         } else {
@@ -147,19 +145,14 @@ impl NodeInstanceManager {
         if let Some(node) = self.nodes.get_mut(&from_id) {
             node.connections.push((output_port.to_string(), to_id, input_port.to_string()));
             
-            // Send message to audio engine to connect the DSP nodes
-            if let (Some(from_index), Some(to_index)) = (
-                node.dsp_node_index,
-                self.nodes.get(&to_id).and_then(|n| n.dsp_node_index)
-            ) {
-                if let Ok(bridge) = self.bridge.lock() {
-                    let _ = bridge.send_param(AudioParamMessage::ConnectNodes(
-                        from_index,
-                        to_index,
-                        output_port.to_string(),
-                        input_port.to_string(),
-                    ));
-                }
+            // Send message to audio engine to connect nodes by UI ids
+            if let Ok(bridge) = self.bridge.lock() {
+                let _ = bridge.send_param(AudioParamMessage::ConnectNodes(
+                    from_id.0.to_string(),
+                    to_id.0.to_string(),
+                    output_port.to_string(),
+                    input_port.to_string(),
+                ));
             }
             
             true
@@ -175,12 +168,13 @@ impl NodeInstanceManager {
                 // Update atomic parameter value for real-time access
                 if let Ok(mut v) = param.value.lock() { *v = value; }
                 
-                // If node is active in DSP graph, send parameter update to audio engine
-                if let Some(index) = node.dsp_node_index {
-                    let param_id = format!("{}:{}", index, param_name);
-                    if let Ok(bridge) = self.bridge.lock() {
-                        let _ = bridge.send_param(AudioParamMessage::SetParameter(param_id, value));
-                    }
+                // Send parameter update to audio engine using UI id
+                if let Ok(bridge) = self.bridge.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::SetNodeParameter(
+                        id.0.to_string(),
+                        param_name.to_string(),
+                        value,
+                    ));
                 }
                 
                 true

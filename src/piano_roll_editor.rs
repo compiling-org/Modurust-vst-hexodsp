@@ -95,7 +95,7 @@ pub struct PitchRange {
     pub max_pitch: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GridResolution {
     Whole,          // 1/1
     Half,           // 1/2

@@ -28,7 +28,7 @@ pub struct PatchMetadata {
     pub scale: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum PatchCategory {
     Synthesizer,
     Effect,
@@ -51,7 +51,7 @@ pub struct ModularNode {
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum NodeType {
     // Oscillators (NoiseCraft inspired)
     SineOscillator,
@@ -204,6 +204,7 @@ pub struct Connection {
 }
 
 /// Modular patch manager for loading, saving, and organizing patches
+#[derive(Debug, Clone)]
 pub struct ModularPatchManager {
     patches: HashMap<Uuid, ModularPatch>,
     current_patch: Option<Uuid>,
@@ -220,6 +221,7 @@ pub struct PatchLibrary {
     pub factory_patches: Vec<Uuid>,
 }
 
+#[derive(Debug, Clone)]
 pub struct NodeFactory {
     node_templates: HashMap<NodeType, NodeTemplate>,
 }

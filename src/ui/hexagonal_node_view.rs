@@ -184,6 +184,16 @@ impl HexNodeViewState {
         let is_mouse_clicked = ui.input(|i| i.pointer.primary_clicked());
         let is_mouse_released = ui.input(|i| i.pointer.primary_released());
         
+        // Handle drop
+        if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) {
+            if ui.input(|i| i.pointer.any_released()) {
+                if let Some(payload) = ui.memory(|mem| mem.data.get_temp::<String>(ui.id())) {
+                    println!("Dropped file: {}", payload);
+                    self.add_node("Sample", "generator.sample", hover_pos);
+                }
+            }
+        }
+
         // Handle node dragging
         if let Some(pos) = hover_pos {
             // Start dragging a node

@@ -32,12 +32,14 @@ env_logger = "0.10"
 anyhow = "1.0"
 thiserror = "1.0"
 
-# Eframe UI framework for immediate mode GUI
-eframe = "0.27"
-egui = "0.27"
-
-# Bevy game engine for 3D graphics and advanced rendering
-# bevy = { version = "0.17", features = ["dynamic_linking"] }
+# Bevy 0.17 + bevy_egui (wgpu native)
+# Disable dynamic_linking to avoid MSVC object limit (LNK1189) on Windows
+# Remove Linux-specific windowing features on Windows
+bevy = { version = "0.17", features = ["bevy_asset"] }
+bevy_egui = "0.38.0"
+ bevy_a11y = "0.17"
+ egui = "0.33"
+bevy_image = "0.17"
 
 # VST3 plugin hosting (temporarily disabled - not available on crates.io)
 # vst3-sys = { git = "https://github.com/RustAudio/vst3-sys" }

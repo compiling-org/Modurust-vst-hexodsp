@@ -1,5 +1,6 @@
-use eframe::egui;
-use egui::{Pos2, Rect, Vec2, Color32, Stroke};
+use egui;
+use egui::{Pos2, Rect};
+// Removed unused egui type imports
 use crate::ui::hexagonal_node_view::HexNodeViewState;
 
 // UI View Modes
@@ -48,8 +49,8 @@ pub struct HexoDSPApp {
     pub node_state: NodeViewState,
 }
 
-impl eframe::App for HexoDSPApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl HexoDSPApp {
+    pub fn update(&mut self, ctx: &egui::Context) {
         ui_system(ctx, &mut self.ui_state, &mut self.arrangement_state, &mut self.live_state, &mut self.node_state);
     }
 }

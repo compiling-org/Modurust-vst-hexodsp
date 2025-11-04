@@ -8,7 +8,7 @@ This document provides comprehensive documentation for the Modurust DAW frontend
 
 ### Core Technologies
 - **Backend**: Rust with real-time audio processing
-- **Frontend**: eframe/egui for native desktop UI
+- **Frontend**: bevy_egui for native desktop UI
 - **Web Support**: WebAssembly compilation for browser deployment
 - **Real-time Processing**: Sub-millisecond audio latency
 - **EEG Integration**: Brain-computer interface controls

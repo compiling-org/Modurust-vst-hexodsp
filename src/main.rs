@@ -1,35 +1,61 @@
-/// HexoDSP DAW - Main Entry Point
-/// 
-/// This is the main entry point for the HexoDSP Digital Audio Workstation,
-/// integrating the eframe UI with the real-time audio engine.
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use hexodsp_daw::{
+    HexoDSPEngine,
+    ui::UiState,
+};
+use std::fs;
+use bevy::render::RenderPlugin;
+use bevy::asset::AssetPlugin;
+use bevy_image::ImagePlugin;
+use bevy::winit::WinitPlugin;
+use bevy::window::WindowPlugin;
+use bevy_a11y::AccessibilityPlugin;
 
-use hexodsp_daw::run_hexodsp_ui;
-use hexodsp_daw::audio_engine::HexoDSPEngine;
+const UI_STATE_PATH: &str = "ui_state.json";
+
+// Define a custom WakeUp message for WinitPlugin
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message, Default)]
+struct WakeUp;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🎵 Starting HexoDSP DAW - Revolutionary Node-Based Audio Workstation");
-    println!("==========================================");
-    
-    // Initialize the audio engine (but don't start it)
-    println!("🎛️ Initializing audio engine...");
-    let mut audio_engine = HexoDSPEngine::new()?;
-    
-    // Don't start audio automatically - user can start it via UI
-    // audio_engine.start()?;
-    
-    // Create a shared reference to the audio engine for the UI
-    // Note: In a production implementation, this would be managed more carefully
-    // to ensure thread safety between the UI and audio threads
-    
-    println!("🖥️ Starting eframe UI...");
-    
-    // Run the eframe UI application
-    run_hexodsp_ui()?;
-    
-    // Clean shutdown
-    println!("🛑 Shutting down...");
-    audio_engine.stop()?;
-    
-    println!("✅ HexoDSP DAW shutdown complete");
+    env_logger::init();
+
+    // Load persisted UI state
+    let ui_state: UiState = fs::read_to_string(UI_STATE_PATH)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    // Build Bevy App
+    App::new()
+        .add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            RenderPlugin::default(),
+            ImagePlugin::default(),
+            WindowPlugin::default(),
+            AccessibilityPlugin,
+            WinitPlugin::<WakeUp>::default(),
+            EguiPlugin::default(),
+        ))
+        .insert_non_send_resource(ui_state)
+        .insert_non_send_resource(HexoDSPEngine::new()?)
+        .add_systems(Startup, setup_camera)
+        .add_systems(EguiPrimaryContextPass, ui_system)
+        .run();
+
     Ok(())
+}
+
+fn setup_camera(mut commands: Commands) {
+    // bevy_egui requires at least one camera
+    commands.spawn(Camera2d);
+}
+
+fn ui_system(mut contexts: EguiContexts) {
+    let ctx = contexts.ctx_mut();
+    egui::Window::new("Hello").show(ctx, |ui| {
+        ui.label("world");
+    });
 }

@@ -14,6 +14,7 @@ use cpal_io::AudioIO;
 use node_graph::NodeGraph;
 use transport::Transport;
 use bridge::{AudioEngineBridge, AudioParamMessage, AudioEngineState};
+use std::collections::HashMap;
 
 /// Main audio engine structure that coordinates all audio processing
 pub struct HexoDSPEngine {
@@ -34,6 +35,9 @@ pub struct HexoDSPEngine {
     
     /// Audio processing state
     pub processing_state: AudioEngineState,
+
+    /// Map UI node IDs to audio graph node IDs
+    ui_to_audio_node: HashMap<String, usize>,
 }
 
 impl HexoDSPEngine {
@@ -52,6 +56,7 @@ impl HexoDSPEngine {
             transport,
             bridge,
             processing_state: AudioEngineState::default(),
+            ui_to_audio_node: HashMap::new(),
         })
     }
     
@@ -143,7 +148,7 @@ impl HexoDSPEngine {
             AudioParamMessage::TrackVolume(track, volume) => {
                 self.node_graph.set_track_volume(track, volume);
             }
-            AudioParamMessage::AddNode(node_type, _node_id_str) => {
+            AudioParamMessage::CreateNode(node_type, ui_node_id) => {
                 let added_id = match node_type.as_str() {
                     "Oscillator" | "Sine" | "Saw" => self.node_graph.add_oscillator(),
                     "Filter" => self.node_graph.add_filter(),
@@ -153,17 +158,44 @@ impl HexoDSPEngine {
                     "Input" => self.node_graph.add_input(),
                     _ => self.node_graph.add_oscillator(),
                 };
-                println!("➕ Added node {:?} -> id {}", node_type, added_id);
+                self.ui_to_audio_node.insert(ui_node_id.clone(), added_id);
+                println!("➕ Created node {:?} -> id {} (ui {})", node_type, added_id, ui_node_id);
             }
-            AudioParamMessage::RemoveNode(node_id) => {
-                self.node_graph.remove_node(node_id);
-                println!("➖ Removed node id {}", node_id);
-            }
-            AudioParamMessage::ConnectNodes(from, to, from_port, to_port) => {
-                if let Err(e) = self.node_graph.connect(from, to, &from_port, &to_port) {
-                    eprintln!("Failed to connect nodes: {}", e);
+            AudioParamMessage::DeleteNode(ui_node_id) => {
+                if let Some(&node_id) = self.ui_to_audio_node.get(&ui_node_id) {
+                    self.node_graph.remove_node(node_id);
+                    self.ui_to_audio_node.remove(&ui_node_id);
+                    println!("➖ Deleted node ui {} (id {})", ui_node_id, node_id);
                 } else {
-                    println!("🔗 Connected {}:{} -> {}:{}", from, from_port, to, to_port);
+                    eprintln!("DeleteNode: unknown ui node id {}", ui_node_id);
+                }
+            }
+            AudioParamMessage::ConnectNodes(from_ui, to_ui, from_port, to_port) => {
+                match (self.ui_to_audio_node.get(&from_ui), self.ui_to_audio_node.get(&to_ui)) {
+                    (Some(&from), Some(&to)) => {
+                        if let Err(e) = self.node_graph.connect(from, to, &from_port, &to_port) {
+                            eprintln!("Failed to connect nodes: {}", e);
+                        } else {
+                            println!("🔗 Connected {}:{} -> {}:{} (ui {} -> ui {})", from, from_port, to, to_port, from_ui, to_ui);
+                        }
+                    }
+                    _ => eprintln!("ConnectNodes: unknown ui ids from={} to={}", from_ui, to_ui),
+                }
+            }
+            AudioParamMessage::DisconnectNodes(from_ui, to_ui) => {
+                match (self.ui_to_audio_node.get(&from_ui), self.ui_to_audio_node.get(&to_ui)) {
+                    (Some(&from), Some(&to)) => {
+                        self.node_graph.disconnect(from, to);
+                        println!("🔌 Disconnected {} -> {} (ui {} -> ui {})", from, to, from_ui, to_ui);
+                    }
+                    _ => eprintln!("DisconnectNodes: unknown ui ids from={} to={}", from_ui, to_ui),
+                }
+            }
+            AudioParamMessage::SetNodeParameter(ui_node_id, param, value) => {
+                if let Some(&node_id) = self.ui_to_audio_node.get(&ui_node_id) {
+                    self.node_graph.set_node_parameter(node_id, &param, value);
+                } else {
+                    eprintln!("SetNodeParameter: unknown ui node id {}", ui_node_id);
                 }
             }
             AudioParamMessage::SetParameter(param, value) => {
@@ -192,6 +224,9 @@ impl HexoDSPEngine {
         self.processing_state.playing = self.transport.is_playing();
         self.processing_state.bpm = self.transport.bpm();
         self.processing_state.time_position = self.transport.time_position();
+
+        // Publish UI->Audio node mapping for UI feedback if needed
+        self.processing_state.node_to_audio_map = self.ui_to_audio_node.clone();
     }
 }
 
