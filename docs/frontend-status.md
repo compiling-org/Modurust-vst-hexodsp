@@ -4,7 +4,24 @@
 
 This document tracks the current development status of the Modurust DAW frontend, including completed features, work-in-progress components, and future development roadmap.
 
-## Current Status: Early Development Phase
+## Status Update — 2025-11-05 (Audit + Alignment)
+- Desktop-first: prioritize Bevy+egui demo; web interface remains secondary.
+- Transport status integrated into bottom panel (playing/BPM/time) via `AudioEngineBridge`.
+- Floating Audio Engine Monitor removed; integrated as non-blocking panel.
+- Arrangement/Live/Node views render; wiring to audio engine in progress.
+- DJ Decks: plan to assign special plugins on Tracks 1–2 for Live workflows.
+- Next: restore clip editing and device chains, rewire controls to engine.
+
+### Delta — 2025-11-05 (Transport & Stability)
+- Transport: Play/Pause toggle now sends `Pause` when playing, `Play` otherwise.
+- Loop: persistent `UiState` fields (`loop_enabled`, `loop_start_beats`, `loop_end_beats`) drive `SetLoop` messaging.
+- Stability: UI panic logging rate-limited (~2s) to reduce disk churn.
+- DevOps: added `scripts/check_ui_and_compile.ps1` for quick log tail + desktop checks.
+- Build: `cargo check --no-default-features` clean on Windows.
+
+Reference alignment: MeadowlarkDAW/Meadowlark (audio engine and core components; UI not relevant): https://github.com/MeadowlarkDAW/Meadowlark
+
+## Current Status: Desktop UI Restoration
 
 ### Completed Features ✅
 
@@ -29,19 +46,13 @@ This document tracks the current development status of the Modurust DAW frontend
 - ✅ Dark theme implementation with professional DAW aesthetics
 
 #### 4. Arrangement View Implementation
-- ✅ Multi-track timeline with unlimited audio/MIDI tracks
-- ✅ Automation lanes with curve-based parameter automation
-- ✅ Clip-based editing with drag-and-drop operations
-- ✅ Track management (types, routing, grouping, freezing)
-- ✅ Tempo mapping and time signature changes
-- ✅ Grid snapping and quantization tools
+- Present: timeline header, zoom/position controls, routing matrix UI.
+- Pending: clip editing, automation lanes, full transport integration.
 
 #### 5. Live Performance View Implementation
-- ✅ Scene management with instant recall and crossfading
-- ✅ 8x8 clip matrix with launch states and follow actions
-- ✅ Real-time performance controls and parameter mapping
-- ✅ MIDI learn functionality and OSC control
-- ✅ Touch automation recording
+- Present: DJ control scaffold (crossfader, tempo, sync toggles).
+- Planned: “DJ Decks” plugin surfaces on Tracks 1–2 with transforms.
+- Pending: scene/clip matrix, parameter mapping, MIDI learn.
 
 #### 6. Node-based Patching View Implementation
 - ✅ Modular architecture with drag-and-drop visual patching
@@ -51,11 +62,8 @@ This document tracks the current development status of the Modurust DAW frontend
 - ✅ Cable connections with signal routing
 
 #### 7. Advanced Audio Features
-- ✅ HexoDSP synthesis engine integration
-- ✅ Real-time effects processing (reverb, delay, distortion)
-- ✅ Multi-channel audio support and routing
-- ✅ VST3 plugin hosting and parameter automation
-- ✅ Hardware integration (MIDI controllers, audio interfaces)
+- Bridge exists; transport control messages wired.
+- Pending: plugin scan/host surface, parameter automation, routing.
 
 #### 8. Research Integration Features
 - ✅ EEG control interface with brainwave parameter mapping
@@ -282,26 +290,26 @@ This document tracks the current development status of the Modurust DAW frontend
 
 ## Next Steps
 
-### Immediate Priorities (Next 2 weeks) ✅
-1. Complete web-based frontend foundation with WebGL/Web Audio
-2. Implement comprehensive Arrangement View with multi-track timeline
-3. Add EEG and motion capture integration
-4. Create responsive design system with accessibility
+### Immediate Priorities (Next 2 weeks)
+1. Restore Arrangement/Live/Node view workflows (clip/device routing).
+2. Wire transport, tempo, input-monitoring to `AudioEngineBridge` end-to-end.
+3. Implement preset browser content and drag/drop to tracks/nodes.
+4. Add metering and latency display; ensure non-blocking layout.
 
 ### Short-term Goals (Next month) ✅
-1. Complete all three view implementations with professional features
-2. Integrate advanced audio controls and synthesis
-3. Add real-time WebGL visualizations and shader effects
-4. Implement full accessibility features (WCAG 2.1 AA)
+1. Mature three views with clip editing, device chains, node patching.
+2. Plugin scan and host surface (VST3) with parameter automation stubs.
+3. Real-time visual feedback: meters, spectrograms, modulation.
+4. Accessibility and theming polish; ThemeManager integration across views.
 
 ### Long-term Vision (6 months) ✅
-1. Full research integration with biofeedback and physiological data
-2. Professional DAW features with VST3 hosting and hardware integration
-3. Cross-platform deployment (desktop, web, mobile)
-4. Performance optimization with sub-10ms latency
+1. Research integration (EEG/motion) layered on stable audio+UI base.
+2. Professional features parity with robust plugin hosting and routing.
+3. Cross-platform deployment; WASM build behind feature flag.
+4. Performance targets: <10ms round-trip, stable under heavy load.
 
 ---
 
-**Last Updated**: 2025-11-04
-**Version**: 1.0.0
-**Status**: Production Ready - Professional DAW Features Complete
+**Last Updated**: 2025-11-05
+**Version**: 1.0.1
+**Status**: Bevy+egui stabilized; full UI and audio wiring in progress

@@ -9,7 +9,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use crossbeam_utils::atomic::AtomicCell;
-use std::collections::HashMap;
+
 
 /// Maximum number of events in the queue
 const MAX_EVENTS: usize = 8192; // Increased for more complex automation
@@ -294,39 +294,45 @@ impl ParameterAutomation {
     }
     
     /// Schedule a parameter change
-    pub fn schedule_param_change(&self, param_id: u32, value: f32, sample_offset: u32) -> bool {
+    pub fn schedule_param_change(&self, node_id: u32, param_id: u32, value: f32, sample_offset: u32) -> bool {
         let timeline_sample = self.current_sample + sample_offset as u64;
         
         let event = TimedEvent {
             sample_offset,
             timeline_sample,
-            event_type: EventType::ParamChange { param_id, value },
+            event_type: EventType::ParamChange { node_id, param_id, value, curve_type: CurveType::Linear },
+            priority: 0,
+            event_id: 0,
         };
         
         self.event_queue.push(event)
     }
     
     /// Schedule a MIDI event
-    pub fn schedule_midi_event(&self, status: u8, data1: u8, data2: u8, channel: u8, sample_offset: u32) -> bool {
+    pub fn schedule_midi_event(&self, status: u8, data1: u8, data2: u8, channel: u8, target_node_id: u32, sample_offset: u32) -> bool {
         let timeline_sample = self.current_sample + sample_offset as u64;
         
         let event = TimedEvent {
             sample_offset,
             timeline_sample,
-            event_type: EventType::MidiEvent { status, data1, data2, channel },
+            event_type: EventType::MidiEvent { status, data1, data2, channel, target_node_id },
+            priority: 0,
+            event_id: 0,
         };
         
         self.event_queue.push(event)
     }
     
     /// Schedule a transport event
-    pub fn schedule_transport_event(&self, command: u8, value: f32, sample_offset: u32) -> bool {
+    pub fn schedule_transport_event(&self, command: u8, value: f32, context: u32, sample_offset: u32) -> bool {
         let timeline_sample = self.current_sample + sample_offset as u64;
         
         let event = TimedEvent {
             sample_offset,
             timeline_sample,
-            event_type: EventType::TransportEvent { command, value },
+            event_type: EventType::TransportEvent { command, value, context },
+            priority: 0,
+            event_id: 0,
         };
         
         self.event_queue.push(event)

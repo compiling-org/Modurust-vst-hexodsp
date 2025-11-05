@@ -46,6 +46,14 @@ A revolutionary Rust-based Digital Audio Workstation featuring a unique three-vi
 - **Deep time & polyspectral**: Phase vocoder, time anchors, and FFT band-routing are roadmap items.
 - **Modu-Commit workflow**: UI buttons exist; snapshot/branch engine support pending.
 
+### Current UI Focus (Desktop-first)
+- **Desktop app prioritized** for demo/testing; web interface is secondary.
+- **Transport status integrated** into bottom panel (playing/stopped, BPM, time).
+- **Audio Engine Monitor** moved into main UI (non-floating) to avoid obstructing views.
+- **Views**: Arrangement, Live, and Node views exist and render; wiring to engine is ongoing.
+- **DJ Decks**: Planned as special plugins on Tracks 1–2 for Live view workflows.
+- **Browser/Mixer**: Present as panels; content/functionality is being restored incrementally.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -62,6 +70,13 @@ cd Modurust-vst-hexodsp/hexodsp-vst3
 # Build and run (desktop mode with Bevy + egui)
 cargo run
 ```
+
+### Preview (Web Interface for testing)
+The web preview server starts alongside the desktop app.
+- URL: `http://127.0.0.1:3030/`
+- WebSocket: `ws://127.0.0.1:3030/ws`
+
+Note: Desktop is the priority; web is for secondary validation and collaboration.
 
 ### Web Development
 ```bash
@@ -88,6 +103,15 @@ cd web && python3 -m http.server 8000
 - **[Developer Setup](docs/developer-setup.md)** - Development environment setup
 - **[Architecture](docs/architecture.md)** - Technical architecture overview
 - **[Changes & Features](docs/changes-features.md)** - Version history and features
+- **[Task Tracker](FIXES_SUMMARY.md#unified-task-tracker)** - Live roadmap and completion tracking
+
+## ⚙️ Automation
+
+To maintain continuity across sessions and automate routine tasks:
+
+- See `docs/AUTOMATION_TASKFLOW.md` for the taskflow overview.
+- Run: `powershell -ExecutionPolicy Bypass -File scripts/taskflow.ps1`.
+- Report output: `automation_report.md` at the repo root.
 
 ## 🏗️ Architecture
 

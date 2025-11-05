@@ -82,7 +82,14 @@ pub struct NodeGraph {
     output_node: Option<usize>,
     input_node: Option<usize>,
     master_volume: f32,
+    master_pan: f32,
+    master_gain_smooth: f32,
+    master_pan_smooth: f32,
     track_volumes: Vec<f32>,
+    track_gain_smooth: Vec<f32>,
+    track_pans: Vec<f32>,
+    return_volumes: Vec<f32>,
+    return_pans: Vec<f32>,
     audio_flow: AudioFlow,
 }
 
@@ -95,7 +102,14 @@ impl NodeGraph {
             output_node: None,
             input_node: None,
             master_volume: 0.8,
+            master_pan: 0.0,
+            master_gain_smooth: 0.8,
+            master_pan_smooth: 0.0,
             track_volumes: vec![0.8; 12], // 12 track volumes
+            track_gain_smooth: vec![0.8; 12],
+            track_pans: vec![0.0; 12],    // centered pan for tracks
+            return_volumes: vec![0.7; 8], // 8 return buses
+            return_pans: vec![0.0; 8],    // centered pan for returns
             audio_flow: AudioFlow {
                 sample_rate: 44100,
                 buffer_size: 256,
@@ -331,8 +345,8 @@ impl NodeGraph {
             }
             
             // Apply node-specific processing
-            let node_state = node_states.get(&node_id).unwrap();
-            self.apply_node_processing(node_id, &node_state.output_buffer);
+            let node_state = node_states.get_mut(&node_id).unwrap();
+            self.apply_node_processing(node_id, &mut node_state.output_buffer);
         }
         
         // Get final output from output node or last node
@@ -341,9 +355,44 @@ impl NodeGraph {
         });
         
         if let Some(node_state) = node_states.get(&final_output_node) {
-            let output_len = output_buffer.len().min(node_state.output_buffer.len());
-            for i in 0..output_len {
-                output_buffer[i] = node_state.output_buffer[i] * self.master_volume;
+            let mono_len = node_state.output_buffer.len();
+            let out_len = output_buffer.len();
+            // Detect stereo interleaved if output buffer appears to be 2x mono size
+            // Fallback to mono copy otherwise.
+            let stereo_frames = if out_len >= mono_len * 2 { mono_len } else { 0 };
+
+            if stereo_frames > 0 {
+                // Equal-power pan and gain ramp smoothing across the buffer
+                let pan_start = self.master_pan_smooth;
+                let pan_target = self.master_pan.clamp(-1.0, 1.0) as f32;
+                let gain_start = self.master_gain_smooth;
+                let gain_target = self.master_volume;
+                for frame in 0..stereo_frames {
+                    let frac = if stereo_frames > 0 { frame as f32 / stereo_frames as f32 } else { 1.0 };
+                    let pan = pan_start + (pan_target - pan_start) * frac;
+                    let gain = gain_start + (gain_target - gain_start) * frac;
+                    let theta = (pan + 1.0) * std::f32::consts::FRAC_PI_4; // equal-power
+                    let (lg, rg) = (theta.cos(), theta.sin());
+                    let s = node_state.output_buffer[frame] * gain;
+                    let base = frame * 2;
+                    if base + 1 < out_len {
+                        output_buffer[base] = s * lg;      // Left
+                        output_buffer[base + 1] = s * rg;  // Right
+                    }
+                }
+                // Commit smoothed states
+                self.master_pan_smooth = pan_target;
+                self.master_gain_smooth = gain_target;
+            } else {
+                let output_len = out_len.min(mono_len);
+                let gain_start = self.master_gain_smooth;
+                let gain_target = self.master_volume;
+                for i in 0..output_len {
+                    let frac = if output_len > 0 { i as f32 / output_len as f32 } else { 1.0 };
+                    let gain = gain_start + (gain_target - gain_start) * frac;
+                    output_buffer[i] = node_state.output_buffer[i] * gain;
+                }
+                self.master_gain_smooth = gain_target;
             }
         } else {
             output_buffer.copy_from_slice(input_buffer);
@@ -364,16 +413,26 @@ impl NodeGraph {
     }
     
     /// Apply node-specific processing (like applying track volumes)
-    fn apply_node_processing(&mut self, node_id: usize, _buffer: &[f32]) {
+    fn apply_node_processing(&mut self, node_id: usize, buffer: &mut [f32]) {
         // This is where we would apply track volumes, automation, etc.
         // For now, just placeholder
         if let Some(node) = self.nodes.get(&node_id) {
             if matches!(node.node_type, NodeType::Input) {
                 // Apply track volume if this is an input node
-                let track_idx = node_id % self.track_volumes.len();
-                let track_volume = self.track_volumes[track_idx];
-                // Note: In a real implementation, we'd modify the buffer here
-                let _ = track_volume; // Silence unused variable warning
+                let tracks_len = self.track_volumes.len();
+                if tracks_len > 0 {
+                    let track_idx = node_id % tracks_len;
+                    let gain_start = self.track_gain_smooth[track_idx];
+                    let gain_target = self.track_volumes[track_idx];
+                    let n = buffer.len();
+                    for (i, sample) in buffer.iter_mut().enumerate() {
+                        let frac = if n > 0 { i as f32 / n as f32 } else { 1.0 };
+                        let gain = gain_start + (gain_target - gain_start) * frac;
+                        *sample *= gain;
+                    }
+                    // Commit smoothed gain for this track
+                    self.track_gain_smooth[track_idx] = gain_target;
+                }
             }
         }
     }
@@ -433,12 +492,77 @@ impl NodeGraph {
     pub fn set_master_volume(&mut self, volume: f32) {
         self.master_volume = volume.max(0.0).min(1.0);
     }
+
+    /// Set master pan (-1.0 left .. 1.0 right)
+    pub fn set_master_pan(&mut self, pan: f32) {
+        self.master_pan = pan.max(-1.0).min(1.0);
+    }
+
+    /// Get master volume (current target)
+    pub fn get_master_volume(&self) -> f32 {
+        self.master_volume
+    }
+
+    /// Get master pan (current target)
+    pub fn get_master_pan(&self) -> f32 {
+        self.master_pan
+    }
     
     /// Set track volume
     pub fn set_track_volume(&mut self, track: usize, volume: f32) {
+        let vol = volume.max(0.0).min(1.0);
         if track < self.track_volumes.len() {
-            self.track_volumes[track] = volume.max(0.0).min(1.0);
+            self.track_volumes[track] = vol;
+        } else {
+            let new_len = track + 1;
+            let _current_len = self.track_volumes.len();
+            self.track_volumes.resize(new_len, 0.8);
+            self.track_gain_smooth.resize(new_len, 0.8);
+            // Initialize both target and smooth to requested volume for new track
+            self.track_volumes[track] = vol;
+            self.track_gain_smooth[track] = vol;
         }
+    }
+
+    /// Set track pan (-1.0 left .. 1.0 right)
+    pub fn set_track_pan(&mut self, track: usize, pan: f32) {
+        if track < self.track_pans.len() {
+            self.track_pans[track] = pan.max(-1.0).min(1.0);
+        }
+    }
+
+    /// Set return bus volume
+    pub fn set_return_volume(&mut self, bus: usize, volume: f32) {
+        if bus < self.return_volumes.len() {
+            self.return_volumes[bus] = volume.max(0.0).min(1.0);
+        }
+    }
+
+    /// Set return bus pan (-1.0 left .. 1.0 right)
+    pub fn set_return_pan(&mut self, bus: usize, pan: f32) {
+        if bus < self.return_pans.len() {
+            self.return_pans[bus] = pan.max(-1.0).min(1.0);
+        }
+    }
+
+    /// Get track volumes
+    pub fn get_track_volumes(&self) -> Vec<f32> {
+        self.track_volumes.clone()
+    }
+
+    /// Get track pans
+    pub fn get_track_pans(&self) -> Vec<f32> {
+        self.track_pans.clone()
+    }
+
+    /// Get return bus volumes
+    pub fn get_return_volumes(&self) -> Vec<f32> {
+        self.return_volumes.clone()
+    }
+
+    /// Get return bus pans
+    pub fn get_return_pans(&self) -> Vec<f32> {
+        self.return_pans.clone()
     }
     
     /// Get master peak level (simplified)
@@ -451,6 +575,15 @@ impl NodeGraph {
     pub fn get_track_peaks(&self) -> Vec<f32> {
         // In a real implementation, this would track actual peak levels per track
         vec![-12.0; self.track_volumes.len()]
+    }
+
+    /// Get return bus peak levels (simplified, based on volume)
+    pub fn get_return_peaks(&self) -> Vec<f32> {
+        // Placeholder: derive peaks from return volumes
+        self.return_volumes
+            .iter()
+            .map(|v| v * 20.0 - 60.0)
+            .collect()
     }
     
     /// Get spectrum data (simplified)

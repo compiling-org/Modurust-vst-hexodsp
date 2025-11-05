@@ -1,11 +1,6 @@
-/// Audio Engine Bridge - Real-time UI/Audio thread communication
-/// 
-/// This module implements the real-time communication system between
-/// the UI thread and the audio processing thread using crossbeam channels
-/// for thread-safe, non-blocking message passing.
-
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use crate::event_queue::EventQueue;
 use std::time::{Duration, Instant};
 use std::thread;
 use std::collections::HashMap;
@@ -20,6 +15,8 @@ pub enum AudioParamMessage {
     Record,
     SetTempo(f32),
     SetTimeSignature(u32, u32),
+    // Looping controls (enabled, start_beats, end_beats)
+    SetLoop(bool, f32, f32),
     
     // Master controls
     MasterVolume(f32),
@@ -36,6 +33,7 @@ pub enum AudioParamMessage {
     // Mixer controls
     SendLevel(usize, usize, f32), // (track, send, level)
     ReturnVolume(usize, f32),
+    ReturnPan(usize, f32),
     GroupVolume(usize, f32),
     
     // EQ and effects
@@ -57,6 +55,8 @@ pub enum AudioParamMessage {
     // System messages
     ReloadConfig,
     ResetEngine,
+    // Input monitoring (enable/disable input stream to prevent feedback)
+    SetInputMonitoring(bool),
 }
 
 /// Real-time audio engine state sent to UI
@@ -191,7 +191,7 @@ impl AudioEngineBridge {
         self.feedback_receiver.try_recv().ok()
     }
     
-    /// Check if it's time to send feedback (rate limiting)
+    /// Check if it\'s time to send feedback (rate limiting)
     pub fn should_send_feedback(&self) -> bool {
         self.last_feedback_time.elapsed() >= self.feedback_interval
     }
@@ -386,13 +386,12 @@ fn generate_test_spectrum() -> Vec<f32> {
 }
 
 /// Build the audio engine with the new bridge system
-pub fn build_hexodsp_engine() -> Result<super::HexoDSPEngine, Box<dyn std::error::Error>> {
+pub fn build_hexodsp_engine(event_queue: Arc<EventQueue>) -> Result<super::HexoDSPEngine, Box<dyn std::error::Error>> {
     use super::{HexoDSPEngine, NodeGraph};
     use super::node_instance_manager::NodeInstanceManager;
     use std::sync::{Arc, Mutex};
     
-    let mut engine = HexoDSPEngine::new()?;
-    
+    let engine = HexoDSPEngine::new(event_queue.clone())?;    
     // Create separate NodeGraph and AudioEngineBridge for NodeInstanceManager
     // This is separate from engine.node_graph to avoid ownership issues
     let node_graph = NodeGraph::new();
@@ -403,7 +402,7 @@ pub fn build_hexodsp_engine() -> Result<super::HexoDSPEngine, Box<dyn std::error
     let node_manager_clone = Arc::clone(&node_manager);
     
     // Start the audio engine bridge
-    engine.bridge.start_audio_thread(move |message| {
+    engine.bridge.lock().unwrap().start_audio_thread(move |message| {
         // Route node operations through NodeInstanceManager
         let mut manager = node_manager_clone.lock().unwrap();
         

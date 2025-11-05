@@ -8,6 +8,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use crate::event_queue::{EventQueue, EventType, AudioThreadEventProcessor};
 
 /// Audio configuration structure
 #[derive(Debug, Clone)]
@@ -50,14 +51,20 @@ pub struct AudioIO {
     running: Arc<AtomicBool>,
     buffer_size: u32,
     sample_rate: u32,
+    event_queue: Arc<EventQueue>,
     // Simple test tone controls (until full graph processing is wired)
     tone_freq: Arc<Mutex<f32>>, // Hz
     tone_amp: Arc<Mutex<f32>>,  // 0.0..=1.0
+    tone_amp_smooth: Arc<Mutex<f32>>, // smoothed amplitude across buffers
+    tone_pan: Arc<Mutex<f32>>,  // -1.0..=+1.0 (target)
+    tone_pan_smooth: Arc<Mutex<f32>>, // smoothed value across buffers
+    // Transport-gated playback flag: when false, output is silent regardless of tone params
+    playback_enabled: Arc<AtomicBool>,
 }
 
 impl AudioIO {
     /// Create a new audio I/O system
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(event_queue: Arc<EventQueue>) -> Result<Self, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
         let config = AudioConfig::default();
         
@@ -89,8 +96,14 @@ impl AudioIO {
             running: Arc::new(AtomicBool::new(false)),
             buffer_size,
             sample_rate,
+            event_queue,
             tone_freq: Arc::new(Mutex::new(440.0)),
-            tone_amp: Arc::new(Mutex::new(0.1)),
+            // Default to silence to avoid unwanted constant tone
+            tone_amp: Arc::new(Mutex::new(0.0)),
+            tone_amp_smooth: Arc::new(Mutex::new(0.0)),
+            tone_pan: Arc::new(Mutex::new(0.0)),
+            tone_pan_smooth: Arc::new(Mutex::new(0.0)),
+            playback_enabled: Arc::new(AtomicBool::new(false)),
         })
     }
     
@@ -177,6 +190,12 @@ impl AudioIO {
             
             let tone_freq = Arc::clone(&self.tone_freq);
             let tone_amp = Arc::clone(&self.tone_amp);
+            let tone_amp_smooth = Arc::clone(&self.tone_amp_smooth);
+            let tone_pan = Arc::clone(&self.tone_pan);
+            let tone_pan_smooth = Arc::clone(&self.tone_pan_smooth);
+            let playback_enabled = Arc::clone(&self.playback_enabled);
+            let channels = config.channels as usize;
+            let event_queue = Arc::clone(&self.event_queue);
             let output_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
                 if !running.load(Ordering::SeqCst) {
                     // Fill with silence if not running
@@ -185,18 +204,86 @@ impl AudioIO {
                     }
                     return;
                 }
+
+                // Gate playback by transport/Play state
+                if !playback_enabled.load(Ordering::SeqCst) {
+                    for sample in data.iter_mut() { *sample = 0.0; }
+                    return;
+                }
                 
                 // Generate test tone (sine wave)
                 let sample_rate = 44100.0;
                 let freq = *tone_freq.lock().unwrap();
-                let amp = *tone_amp.lock().unwrap();
+                // Target amplitude and starting smoothed amplitude
+                let amp_target = (*tone_amp.lock().unwrap()).clamp(0.0, 1.0);
+                let amp_start = *tone_amp_smooth.lock().unwrap();
+                // If amplitude is zero, output silence for the whole buffer
+                if amp_target <= 0.000_001 && amp_start <= 0.000_001 {
+                    for sample in data.iter_mut() { *sample = 0.0; }
+                    return;
+                }
                 let time = std::time::SystemTime::now();
                 let elapsed = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                 let seconds = elapsed.as_secs_f64();
                 
-                for (i, sample) in data.iter_mut().enumerate() {
-                    let t = seconds + (i as f64 / sample_rate);
-                    *sample = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32 * amp;
+                // Create an event processor for this buffer
+                let mut event_processor = AudioThreadEventProcessor::new(Arc::clone(&event_queue));
+                event_processor.set_current_sample(seconds as u64 * sample_rate as u64);
+
+                // Process events for this buffer
+                event_processor.process_buffer(data.len(), |event, sample_offset| {
+                    match event {
+                        EventType::ParamChange { node_id, param_id, value, curve_type } => {
+                            // TODO: Apply parameter change to the audio engine state
+                            // For now, let's just print it
+                            println!("ParamChange: node_id={}, param_id={}, value={}, curve_type={:?}, sample_offset={}",
+                                node_id, param_id, value, curve_type, sample_offset);
+                        },
+                        EventType::MidiEvent { status, data1, data2, channel, target_node_id } => {
+                            // TODO: Process MIDI event
+                            println!("MidiEvent: status={}, data1={}, data2={}, channel={}, target_node_id={}",
+                                status, data1, data2, channel, target_node_id);
+                        },
+                        _ => {},
+                    }
+                });
+                
+                // Smooth pan over this buffer to avoid zipper noise
+                let pan_target = (*tone_pan.lock().unwrap()).clamp(-1.0, 1.0);
+                let pan_start = *tone_pan_smooth.lock().unwrap();
+
+                if channels >= 2 {
+                    let frames = data.len() / channels;
+                    for frame in 0..frames {
+                        // Linear ramp from start -> target across frames
+                        let frac = if frames > 0 { frame as f32 / frames as f32 } else { 1.0 };
+                        let pan = pan_start + (pan_target - pan_start) * frac;
+                        let amp = amp_start + (amp_target - amp_start) * frac;
+                        let theta = (pan + 1.0) as f32 * std::f32::consts::FRAC_PI_4; // equal-power
+                        let (lg, rg) = (theta.cos(), theta.sin());
+                        let t = seconds + (frame as f64 / sample_rate);
+                        let s_base = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32;
+                        let s = s_base * amp;
+                        let base = frame * channels;
+                        data[base] = s * lg;         // Left
+                        data[base + 1] = s * rg;     // Right
+                        for ch in 2..channels {       // Additional channels copy
+                            data[base + ch] = s;
+                        }
+                    }
+                    // Commit smoothed pan to target for continuity across buffers
+                    if let Ok(mut p) = tone_pan_smooth.lock() { *p = pan_target; }
+                    if let Ok(mut a) = tone_amp_smooth.lock() { *a = amp_target; }
+                } else {
+                    let frames = data.len();
+                    for (i, sample) in data.iter_mut().enumerate() {
+                        let frac = if frames > 0 { i as f32 / frames as f32 } else { 1.0 };
+                        let amp = amp_start + (amp_target - amp_start) * frac;
+                        let t = seconds + (i as f64 / sample_rate);
+                        let s_base = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32;
+                        *sample = s_base * amp;
+                    }
+                    if let Ok(mut a) = tone_amp_smooth.lock() { *a = amp_target; }
                 }
             };
             
@@ -264,6 +351,11 @@ impl AudioIO {
             
             let tone_freq = Arc::clone(&self.tone_freq);
             let tone_amp = Arc::clone(&self.tone_amp);
+            let tone_amp_smooth = Arc::clone(&self.tone_amp_smooth);
+            let tone_pan = Arc::clone(&self.tone_pan);
+            let tone_pan_smooth = Arc::clone(&self.tone_pan_smooth);
+            let playback_enabled = Arc::clone(&self.playback_enabled);
+            let channels = config.channels as usize;
             let output_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
                 if !running.load(Ordering::SeqCst) {
                     // Fill with silence if not running
@@ -272,18 +364,64 @@ impl AudioIO {
                     }
                     return;
                 }
+
+                // Gate playback by transport/Play state
+                if !playback_enabled.load(Ordering::SeqCst) {
+                    for sample in data.iter_mut() { *sample = 0.0; }
+                    return;
+                }
                 
                 // Generate test tone (sine wave)
                 let sample_rate = 44100.0;
                 let freq = *tone_freq.lock().unwrap();
-                let amp = *tone_amp.lock().unwrap();
+                // Target amplitude and starting smoothed amplitude
+                let amp_target = (*tone_amp.lock().unwrap()).clamp(0.0, 1.0);
+                let amp_start = *tone_amp_smooth.lock().unwrap();
+                // If amplitude is zero, output silence for the whole buffer
+                if amp_target <= 0.000_001 && amp_start <= 0.000_001 {
+                    for sample in data.iter_mut() { *sample = 0.0; }
+                    return;
+                }
                 let time = std::time::SystemTime::now();
                 let elapsed = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                 let seconds = elapsed.as_secs_f64();
                 
-                for (i, sample) in data.iter_mut().enumerate() {
-                    let t = seconds + (i as f64 / sample_rate);
-                    *sample = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32 * amp;
+                // Smooth pan over this buffer to avoid zipper noise
+                let pan_target = (*tone_pan.lock().unwrap()).clamp(-1.0, 1.0);
+                let pan_start = *tone_pan_smooth.lock().unwrap();
+
+                if channels >= 2 {
+                    let frames = data.len() / channels;
+                    for frame in 0..frames {
+                        // Linear ramp from start -> target across frames
+                        let frac = if frames > 0 { frame as f32 / frames as f32 } else { 1.0 };
+                        let pan = pan_start + (pan_target - pan_start) * frac;
+                        let amp = amp_start + (amp_target - amp_start) * frac;
+                        let theta = (pan + 1.0) as f32 * std::f32::consts::FRAC_PI_4; // equal-power
+                        let (lg, rg) = (theta.cos(), theta.sin());
+                        let t = seconds + (frame as f64 / sample_rate);
+                        let s_base = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32;
+                        let s = s_base * amp;
+                        let base = frame * channels;
+                        data[base] = s * lg;         // Left
+                        data[base + 1] = s * rg;     // Right
+                        for ch in 2..channels {       // Additional channels copy
+                            data[base + ch] = s;
+                        }
+                    }
+                    // Commit smoothed pan to target for continuity across buffers
+                    if let Ok(mut p) = tone_pan_smooth.lock() { *p = pan_target; }
+                    if let Ok(mut a) = tone_amp_smooth.lock() { *a = amp_target; }
+                } else {
+                    let frames = data.len();
+                    for (i, sample) in data.iter_mut().enumerate() {
+                        let frac = if frames > 0 { i as f32 / frames as f32 } else { 1.0 };
+                        let amp = amp_start + (amp_target - amp_start) * frac;
+                        let t = seconds + (i as f64 / sample_rate);
+                        let s_base = (2.0 * std::f64::consts::PI * freq as f64 * t).sin() as f32;
+                        *sample = s_base * amp;
+                    }
+                    if let Ok(mut a) = tone_amp_smooth.lock() { *a = amp_target; }
                 }
             };
             
@@ -322,6 +460,35 @@ impl AudioIO {
         }
         Ok(())
     }
+
+    /// Set the test tone pan (temporary audible control)
+    pub fn set_tone_pan(&self, pan: f32) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(mut p) = self.tone_pan.lock() {
+            *p = pan.clamp(-1.0, 1.0);
+        }
+        Ok(())
+    }
+
+    /// Enable/disable input monitoring at runtime.
+    /// When disabled, drops the input stream to prevent feedback while keeping output active.
+    /// Re-enabling input monitoring at runtime is not currently supported without a full restart.
+    pub fn set_input_monitoring(&mut self, enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if !enabled {
+            if self.input_stream.is_some() {
+                // Drop the input stream to stop input monitoring
+                self.input_stream = None;
+                println!("🔇 Input monitoring disabled (input stream dropped)");
+            } else {
+                println!("ℹ️ Input monitoring already disabled");
+            }
+            return Ok(());
+        }
+
+        // Enabling input monitoring requires recreating the input stream with the processing callback,
+        // which is managed by the engine start sequence. Log and no-op here.
+        println!("⚠️ Enabling input monitoring at runtime is not supported; restart audio to enable.");
+        Ok(())
+    }
     
     /// Stop audio streams
     pub fn stop(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -344,6 +511,11 @@ impl AudioIO {
     /// Check if audio is running
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
+    }
+
+    /// Enable or disable playback output (transport gating)
+    pub fn set_playback_enabled(&self, enabled: bool) {
+        self.playback_enabled.store(enabled, Ordering::SeqCst);
     }
     
     /// Create output stream configuration

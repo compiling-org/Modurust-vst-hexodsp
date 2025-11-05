@@ -335,7 +335,7 @@ impl PianoRollEditor {
 
     pub fn remove_note(&mut self, note_id: Uuid) -> Result<(), String> {
         if let Some(index) = self.midi_clip.notes.iter().position(|n| n.id == note_id) {
-            let note = self.midi_clip.notes.remove(index);
+            let _note = self.midi_clip.notes.remove(index);
             self.add_to_undo_stack(EditorAction::RemoveNote(note_id));
             Ok(())
         } else {
@@ -388,6 +388,7 @@ impl PianoRollEditor {
         });
     }
 
+    #[allow(dead_code)]
     fn quantize_time(&self, time: f64) -> f64 {
         let grid_size = self.get_grid_size();
         let quantized = (time / grid_size).round() * grid_size;

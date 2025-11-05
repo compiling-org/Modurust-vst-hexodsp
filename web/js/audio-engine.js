@@ -7,6 +7,9 @@ class AudioEngine {
     static audioContext = null;
     static masterGain = null;
     static analyser = null;
+    static analyserL = null;
+    static analyserR = null;
+    static splitter = null;
     static tracks = new Map();
     static effects = new Map();
     static isInitialized = false;
@@ -24,11 +27,24 @@ class AudioEngine {
             this.masterGain.gain.value = 0.8;
             this.masterGain.connect(this.audioContext.destination);
 
-            // Create analyser for visualization
+            // Create analyser(s) for visualization
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 2048;
             this.analyser.smoothingTimeConstant = 0.8;
             this.masterGain.connect(this.analyser);
+
+            // Create stereo analysers via a sidechain splitter
+            this.splitter = this.audioContext.createChannelSplitter(2);
+            this.analyserL = this.audioContext.createAnalyser();
+            this.analyserR = this.audioContext.createAnalyser();
+            this.analyserL.fftSize = 2048;
+            this.analyserR.fftSize = 2048;
+            this.analyserL.smoothingTimeConstant = 0.85;
+            this.analyserR.smoothingTimeConstant = 0.85;
+            // Tap the master output into the splitter solely for analysis
+            this.masterGain.connect(this.splitter);
+            this.splitter.connect(this.analyserL, 0);
+            this.splitter.connect(this.analyserR, 1);
 
             // Initialize tracks
             this.initializeTracks();
@@ -227,6 +243,38 @@ class AudioEngine {
         const dataArray = new Uint8Array(bufferLength);
         this.analyser.getByteTimeDomainData(dataArray);
         return dataArray;
+    }
+
+    // Get stereo RMS levels in dB for meters
+    static getStereoLevels() {
+        const levels = { left: -Infinity, right: -Infinity };
+
+        if (!this.analyserL || !this.analyserR) {
+            // Fallback to mono analyser
+            const mono = this.getTimeDomainData();
+            if (mono && mono.length) {
+                const rms = Math.sqrt(mono.reduce((acc, v) => {
+                    const centered = (v - 128) / 128; // byte time domain centered around 128
+                    return acc + centered * centered;
+                }, 0) / mono.length);
+                const db = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+                levels.left = db;
+                levels.right = db;
+            }
+            return levels;
+        }
+
+        const bufL = new Float32Array(this.analyserL.fftSize);
+        const bufR = new Float32Array(this.analyserR.fftSize);
+        this.analyserL.getFloatTimeDomainData(bufL);
+        this.analyserR.getFloatTimeDomainData(bufR);
+
+        const rmsL = Math.sqrt(bufL.reduce((acc, v) => acc + v * v, 0) / bufL.length);
+        const rmsR = Math.sqrt(bufR.reduce((acc, v) => acc + v * v, 0) / bufR.length);
+        levels.left = rmsL > 0 ? 20 * Math.log10(rmsL) : -Infinity;
+        levels.right = rmsR > 0 ? 20 * Math.log10(rmsR) : -Infinity;
+
+        return levels;
     }
 
     // Create oscillator for synthesis

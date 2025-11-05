@@ -491,4 +491,39 @@ Then we can tackle advanced features like AI, VST hosting, MIDI 2.0.
 2. Populate browser panel
 3. Begin UI↔Audio node bridging
 
+---
+
+## Consolidated Goals — 2025-11-05
+- Bevy+egui UI is stable; re-enable full DAW UI (Arrangement/Live/Node) using resource wrappers for large state.
+- Define UI→Audio message protocol (parameter changes, transport, clip ops) and ensure real-time safety.
+- Implement preset browser with actual presets linked to `PresetManager` and node/device creation.
+- Add transport controls bound to `transport_sync` and display latency/metering from audio backend.
+- Create minimal VST3 host surface: scan, list, load/unload; parameter view stub.
+
+Reference alignment: MeadowlarkDAW/Meadowlark for audio engine patterns and component separation. URL: https://github.com/MeadowlarkDAW/Meadowlark
+
+Acceptance criteria:
+- Complex UI renders in Bevy with interactive menus and panels.
+- Actions from UI generate bridge messages and are handled without XRuns.
+- Preset browser shows real content; drag/drop instantiates devices/nodes.
+- Transport play/stop works; meters update; latency target <10ms on test rig.
+
 This analysis provides a clear roadmap forward! 🎵
+### Live & Arrangement Views — Audit Summary (2025-11)
+**Arrangement**: Timeline header, position/zoom, routing matrix are present; transport controls exist across bottom panel; clip editing and automation lanes to be restored.
+
+**Live**: DJ controls scaffolded (crossfader, tempo, sync); plan to assign special “DJ Decks” plugins to Tracks 1–2 with transform capability; scene/clip launch matrix pending.
+
+**Node**: Hex canvas and category panels present; engine-side node wiring and parameter feedback pending.
+
+### Alignment & Priorities
+- Desktop-first: demo-ready Bevy+egui UI takes precedence; web is secondary.
+- Remove floating overlays; integrate monitoring into panels to avoid obstruction.
+- Wire transport, tempo, and input-monitoring via `AudioEngineBridge`.
+- Restore clip/device chain workflows in Arrangement and Live views.
+
+### Next Steps (Concrete)
+1. Map “DJ Decks” plugin surfaces to Tracks 1–2 in Live view.
+2. Re-enable clip editing UI and automation lanes in Arrangement.
+3. Implement preset browser content and drag/drop to tracks/devices.
+4. Add metering (master/track) and latency display in status bar.

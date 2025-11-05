@@ -68,3 +68,13 @@ Please see CONTRIBUTING.md for development guidelines.
 ## License
 
 See LICENSE file for details.
+## Quick Links
+
+- Desktop Focus Plan: `FOCUS_DESKTOP.md` for the month-long, desktop-only scope.
+- Desktop Demo Plan: see `desktop-demo-plan.md` for the demo scope, acceptance criteria, and plans covering shaders/visuals, MIDI 2.0/MPE, and microtuning.
+- Web App Plan: `web-app-plan.md` for the post-demo browser strategy and detailed roadmap.
+- Architecture: `architecture.md` for system design.
+- Roadmap: `ROADMAP.md` for phased delivery.
+- Frontend Features/Status: `frontend-features.md` and `frontend-status.md`.
+- User Guide: `user-guide.md` for usage details.
+ - Development Workflow (Script-Based SOP): `DEVELOPMENT_WORKFLOW.md` for non-interactive checks and audits.

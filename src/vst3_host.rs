@@ -269,7 +269,7 @@ impl VST3Host {
     /// Scan for VST3 plugins in standard directories
     pub fn scan_plugins(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         use std::fs;
-        use std::path::Path;
+
 
         let mut found_plugins = Vec::new();
 
@@ -424,7 +424,7 @@ pub fn create_vst3_node_registry() -> HashMap<String, Box<dyn Fn(String) -> Resu
     let mut registry = HashMap::new();
 
     // VST3 Effect Node factory
-    let vst3_effect_factory = |plugin_path: String| -> Result<Box<dyn std::any::Any + Send + Sync>, Box<dyn std::error::Error>> {
+    let vst3_effect_factory = |_plugin_path: String| -> Result<Box<dyn std::any::Any + Send + Sync>, Box<dyn std::error::Error>> {
         // In a real implementation, this would load the VST3 plugin
         // and return a factory for creating node instances
         Err("VST3 plugin loading not implemented".into())

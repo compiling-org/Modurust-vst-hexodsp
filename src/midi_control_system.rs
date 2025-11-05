@@ -649,7 +649,7 @@ impl MidiControlSystem {
     }
 
     pub fn save_preset(&self, name: String, mappings: Vec<Uuid>) -> Result<(), String> {
-        let preset = MidiControlPreset {
+        let _preset = MidiControlPreset {
             name: name.clone(),
             description: "User created preset".to_string(),
             mappings,
@@ -717,7 +717,7 @@ impl MappingCurve {
 }
 
 impl ControlSurface {
-    pub fn from_template(id: String, template: SurfaceTemplate, device_id: String) -> Self {
+    pub fn from_template(id: String, template: SurfaceTemplate, _device_id: String) -> Self {
         let (name, controls) = match template {
             SurfaceTemplate::AbletonPush2 => {
                 ("Ableton Push 2".to_string(), Self::create_push2_controls())

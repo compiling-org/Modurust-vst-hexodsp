@@ -15,6 +15,7 @@ pub struct NodeInstanceId(pub u64);
 
 /// Node parameter with atomic storage for real-time access
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct AtomicParameter {
     /// Current parameter value (atomically accessible from audio thread)
     value: Arc<Mutex<f32>>,
@@ -32,6 +33,7 @@ pub struct AtomicParameter {
 
 /// Time-stamped parameter change for sample-accurate automation
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TimedParameterChange {
     /// Target parameter ID
     param_id: String,
@@ -45,6 +47,7 @@ pub struct TimedParameterChange {
 
 /// Node instance representation in the manager
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ManagedNode {
     /// Unique instance ID
     id: NodeInstanceId,
@@ -122,7 +125,7 @@ impl NodeInstanceManager {
     
     /// Remove a node instance
     pub fn remove_node(&mut self, id: NodeInstanceId) -> bool {
-        if let Some(node) = self.nodes.remove(&id) {
+        if let Some(_node) = self.nodes.remove(&id) {
             // Send message to audio engine to remove the DSP node via UI id
             if let Ok(bridge) = self.bridge.lock() {
                 let _ = bridge.send_param(AudioParamMessage::DeleteNode(id.0.to_string()));

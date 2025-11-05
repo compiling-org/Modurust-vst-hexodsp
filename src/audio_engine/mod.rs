@@ -10,11 +10,14 @@ pub mod transport;
 pub mod bridge;
 pub mod node_instance_manager;
 
+use crate::event_queue::EventQueue;
+
 use cpal_io::AudioIO;
 use node_graph::NodeGraph;
 use transport::Transport;
 use bridge::{AudioEngineBridge, AudioParamMessage, AudioEngineState};
-use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
 
 /// Main audio engine structure that coordinates all audio processing
 pub struct HexoDSPEngine {
@@ -30,24 +33,33 @@ pub struct HexoDSPEngine {
     /// Transport and timing system
     pub transport: Transport,
     
-    /// Bridge for UI communication
-    pub bridge: AudioEngineBridge,
+    /// Bridge for UI communication (shared with UI)
+    pub bridge: Arc<Mutex<AudioEngineBridge>>,
     
     /// Audio processing state
     pub processing_state: AudioEngineState,
 
     /// Map UI node IDs to audio graph node IDs
     ui_to_audio_node: HashMap<String, usize>,
+
+    /// Track base volumes (pre mute/solo), keyed by track index
+    track_base_volumes: HashMap<usize, f32>,
+    /// Track mute states
+    track_mutes: HashMap<usize, bool>,
+    /// Set of soloed tracks
+    solo_tracks: HashSet<usize>,
+    /// Master mute state (gates AudioIO output)
+    master_muted: bool,
 }
 
 impl HexoDSPEngine {
     /// Create a new audio engine with default settings
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let audio_io = AudioIO::new()?;
+    pub fn new(event_queue: Arc<EventQueue>) -> Result<Self, Box<dyn std::error::Error>> {
+        let audio_io = AudioIO::new(event_queue.clone())?;
         let dsp_core = dsp_core::DSPCore::new(audio_io.sample_rate(), audio_io.buffer_size());
         let node_graph = NodeGraph::new();
         let transport = Transport::new(audio_io.sample_rate());
-        let bridge = AudioEngineBridge::new();
+        let bridge = Arc::new(Mutex::new(AudioEngineBridge::new()));
         
         Ok(Self {
             audio_io,
@@ -57,6 +69,10 @@ impl HexoDSPEngine {
             bridge,
             processing_state: AudioEngineState::default(),
             ui_to_audio_node: HashMap::new(),
+            track_base_volumes: HashMap::new(),
+            track_mutes: HashMap::new(),
+            solo_tracks: HashSet::new(),
+            master_muted: false,
         })
     }
     
@@ -69,12 +85,9 @@ impl HexoDSPEngine {
         // Initialize audio processing pipeline
         self.setup_default_graph()?;
         
-        // Start the audio I/O system with a callback that pumps messages and processes audio
-        let buffer_size = self.audio_io.buffer_size() as usize;
-        self.audio_io.start(|_data, _info| {
-            // Placeholder: input processing omitted for brevity
-            // Real-time audio processing is handled by output stream in AudioIO
-        })?;
+        // Start the audio I/O system: output-only for clean audible tone feedback
+        // (input monitoring toggled via AudioIO when needed)
+        self.audio_io.start_output_only()?;
         
         println!("✅ HexoDSP Audio Engine started successfully");
         Ok(())
@@ -109,20 +122,32 @@ impl HexoDSPEngine {
         // Update transport/timing
         self.transport.update();
         
-        // Process UI messages
-        while let Some(message) = self.bridge.receive_param() {
-            self.handle_param_message(message);
+        // Process UI messages without holding the bridge lock across handler
+        loop {
+            let message_opt = {
+                let br = self.bridge.lock().unwrap();
+                br.receive_param()
+            };
+            match message_opt {
+                Some(message) => self.handle_param_message(message),
+                None => break,
+            }
         }
         
-        // Process the node graph
-        self.node_graph.process(input_buffer, output_buffer);
+        // If not playing, output silence and skip heavy processing
+        if !self.transport.is_playing() {
+            for s in output_buffer.iter_mut() { *s = 0.0; }
+        } else {
+            // Process the node graph when transport is active
+            self.node_graph.process(input_buffer, output_buffer);
+        }
         
         // Update audio state for UI feedback
         self.update_audio_state();
         
         // Send state back to UI
-        if self.bridge.should_send_feedback() {
-            let _ = self.bridge.send_feedback(self.processing_state.clone());
+        if self.bridge.lock().unwrap().should_send_feedback() {
+            let _ = self.bridge.lock().unwrap().send_feedback(self.processing_state.clone());
         }
     }
     
@@ -132,21 +157,77 @@ impl HexoDSPEngine {
             AudioParamMessage::SetTempo(bpm) => {
                 self.transport.set_tempo(bpm);
             }
+            AudioParamMessage::SetLoop(enabled, start_beats, end_beats) => {
+                // Convert beat positions to samples using current tempo
+                let spb = self.transport.clock().samples_per_beat();
+                let start_samples = (start_beats.max(0.0) * spb) as u64;
+                let end_samples = (end_beats.max(start_beats) * spb) as u64;
+                self.transport.set_loop_enabled(enabled);
+                self.transport.set_loop_region(start_samples, end_samples);
+            }
             AudioParamMessage::Play => {
                 self.transport.play();
+                // Gate CPAL output by transport state
+                self.audio_io.set_playback_enabled(true);
             }
             AudioParamMessage::Stop => {
                 self.transport.stop();
+                self.audio_io.set_playback_enabled(false);
             }
             AudioParamMessage::Record => {
                 self.transport.record();
+            }
+            AudioParamMessage::Pause => {
+                // Pause should silence output but keep transport position
+                self.transport.pause();
+                self.audio_io.set_playback_enabled(false);
+            }
+            AudioParamMessage::SetInputMonitoring(enabled) => {
+                let _ = self.audio_io.set_input_monitoring(enabled);
             }
             AudioParamMessage::MasterVolume(volume) => {
                 self.node_graph.set_master_volume(volume);
                 let _ = self.audio_io.set_tone_amp(volume);
             }
+            AudioParamMessage::MasterPan(pan) => {
+                self.node_graph.set_master_pan(pan);
+                let _ = self.audio_io.set_tone_pan(pan);
+            }
+            AudioParamMessage::MasterMute(muted) => {
+                // Gate audio output while keeping transport state unaffected
+                self.master_muted = muted;
+                if muted {
+                    self.audio_io.set_playback_enabled(false);
+                } else {
+                    // Restore playback according to transport state
+                    self.audio_io.set_playback_enabled(self.transport.is_playing());
+                }
+            }
             AudioParamMessage::TrackVolume(track, volume) => {
-                self.node_graph.set_track_volume(track, volume);
+                // Store base volume and reapply mute/solo rules
+                self.track_base_volumes.insert(track, volume);
+                self.apply_mute_solo();
+            }
+            AudioParamMessage::TrackPan(track, pan) => {
+                self.node_graph.set_track_pan(track, pan);
+            }
+            AudioParamMessage::TrackMute(track, muted) => {
+                self.track_mutes.insert(track, muted);
+                self.apply_mute_solo();
+            }
+            AudioParamMessage::TrackSolo(track, solo) => {
+                if solo {
+                    self.solo_tracks.insert(track);
+                } else {
+                    self.solo_tracks.remove(&track);
+                }
+                self.apply_mute_solo();
+            }
+            AudioParamMessage::ReturnVolume(bus, volume) => {
+                self.node_graph.set_return_volume(bus, volume);
+            }
+            AudioParamMessage::ReturnPan(bus, pan) => {
+                self.node_graph.set_return_pan(bus, pan);
             }
             AudioParamMessage::CreateNode(node_type, ui_node_id) => {
                 let added_id = match node_type.as_str() {
@@ -208,6 +289,35 @@ impl HexoDSPEngine {
             }
         }
     }
+
+    /// Apply mute/solo rules to track volumes, based on stored base volumes
+    fn apply_mute_solo(&mut self) {
+        // Determine number of known tracks from node graph
+        let current = self.node_graph.get_track_volumes();
+        let track_count = current.len();
+        let any_solo = !self.solo_tracks.is_empty();
+
+        for track in 0..track_count {
+            let base = self
+                .track_base_volumes
+                .get(&track)
+                .copied()
+                .unwrap_or(current.get(track).copied().unwrap_or(0.8));
+
+            // Evaluate audible state
+            let muted = self.track_mutes.get(&track).copied().unwrap_or(false);
+            let audible = if muted {
+                false
+            } else if any_solo {
+                self.solo_tracks.contains(&track)
+            } else {
+                true
+            };
+
+            let applied = if audible { base } else { 0.0 };
+            self.node_graph.set_track_volume(track, applied);
+        }
+    }
     
     /// Update audio processing state for UI feedback
     fn update_audio_state(&mut self) {
@@ -216,6 +326,8 @@ impl HexoDSPEngine {
         
         // Update track peak levels
         self.processing_state.track_peaks = self.node_graph.get_track_peaks();
+        // Update return bus peak levels
+        self.processing_state.return_peaks = self.node_graph.get_return_peaks();
         
         // Update spectrum data
         self.processing_state.spectrum_data = self.node_graph.get_spectrum_data();
@@ -225,13 +337,37 @@ impl HexoDSPEngine {
         self.processing_state.bpm = self.transport.bpm();
         self.processing_state.time_position = self.transport.time_position();
 
+        // Publish current master params for UI sync
+        self.processing_state
+            .current_params
+            .insert("MasterVolume".to_string(), self.node_graph.get_master_volume());
+        self.processing_state
+            .current_params
+            .insert("MasterPan".to_string(), self.node_graph.get_master_pan());
+
+        // Publish track and return params for UI sync
+        for (i, v) in self.node_graph.get_track_volumes().iter().enumerate() {
+            self.processing_state
+                .current_params
+                .insert(format!("TrackVolume_{}", i), *v);
+        }
+        for (i, p) in self.node_graph.get_track_pans().iter().enumerate() {
+            self.processing_state
+                .current_params
+                .insert(format!("TrackPan_{}", i), *p);
+        }
+        for (i, v) in self.node_graph.get_return_volumes().iter().enumerate() {
+            self.processing_state
+                .current_params
+                .insert(format!("ReturnVolume_{}", i), *v);
+        }
+        for (i, p) in self.node_graph.get_return_pans().iter().enumerate() {
+            self.processing_state
+                .current_params
+                .insert(format!("ReturnPan_{}", i), *p);
+        }
+
         // Publish UI->Audio node mapping for UI feedback if needed
         self.processing_state.node_to_audio_map = self.ui_to_audio_node.clone();
-    }
-}
-
-impl Default for HexoDSPEngine {
-    fn default() -> Self {
-        Self::new().expect("Failed to create audio engine")
     }
 }

@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::convert::Infallible;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use warp::{Filter, Reply, ws::{Message, WebSocket}};
@@ -63,12 +62,14 @@ pub enum WebSocketMessage {
 type Clients = Arc<Mutex<HashMap<String, broadcast::Sender<String>>>>;
 
 /// Web interface server
+#[cfg(feature = "webui")]
 pub struct WebInterfaceServer {
     config: WebInterfaceConfig,
     clients: Clients,
     broadcast_tx: broadcast::Sender<String>,
 }
 
+#[cfg(feature = "webui")]
 impl WebInterfaceServer {
     pub fn new(config: WebInterfaceConfig) -> Self {
         let (broadcast_tx, _) = broadcast::channel(1000);

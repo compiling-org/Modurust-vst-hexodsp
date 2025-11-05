@@ -7,28 +7,30 @@
 
 // Declare the submodules
 
-mod eframe_ui_full;
+mod egui_ui_full;
 pub mod hexagonal_node_view;
+pub mod bevy_egui_ui;
 
-// Re-export the full-featured eframe UI implementation
-pub use eframe_ui_full::*;
+// Re-export the full-featured egui UI implementation
+pub use egui_ui_full::*;
+pub use bevy_egui_ui::*;
 
 // Re-export all sophisticated UI components and state management from the full UI
-pub use eframe_ui_full::UIViewMode;
-pub use eframe_ui_full::UiState;
-pub use eframe_ui_full::ArrangementViewState;
-pub use eframe_ui_full::LiveViewState;
-pub use eframe_ui_full::NodeViewState;
-pub use eframe_ui_full::VisualFeedbackSettings;
-pub use eframe_ui_full::AutomationCurve;
-pub use eframe_ui_full::AutomationPoint;
-pub use eframe_ui_full::TrackRoute;
-pub use eframe_ui_full::ClipOperation;
-pub use eframe_ui_full::MegaPlugin;
-pub use eframe_ui_full::ModulationRoute;
-pub use eframe_ui_full::NodePosition;
-pub use eframe_ui_full::NodeConnection;
-pub use eframe_ui_full::NodeParameter;
-pub use eframe_ui_full::NodePreset;
-pub use eframe_ui_full::NuweShader;
-pub use eframe_ui_full::ISFPlugin;
+pub use egui_ui_full::UIViewMode;
+pub use egui_ui_full::UiState;
+pub use egui_ui_full::ArrangementViewState;
+pub use egui_ui_full::LiveViewState;
+pub use egui_ui_full::NodeViewState;
+pub use egui_ui_full::VisualFeedbackSettings;
+pub use egui_ui_full::AutomationCurve;
+pub use egui_ui_full::AutomationPoint;
+pub use egui_ui_full::TrackRoute;
+pub use egui_ui_full::ClipOperation;
+pub use egui_ui_full::MegaPlugin;
+pub use egui_ui_full::ModulationRoute;
+pub use egui_ui_full::NodePosition;
+pub use egui_ui_full::NodeConnection;
+pub use egui_ui_full::NodeParameter;
+pub use egui_ui_full::NodePreset;
+pub use egui_ui_full::NuweShader;
+pub use egui_ui_full::ISFPlugin;

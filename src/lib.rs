@@ -21,6 +21,7 @@ pub mod ui;
 
 // Audio engine module - real-time audio processing and DSP
 pub mod audio_engine;
+pub mod event_queue;
 
 // Presets module - modular content system for the Three-View workflow
 pub mod presets;
@@ -37,8 +38,9 @@ pub mod clip_node_integration;
 // MIDI 2.0 and MPE support - advanced MIDI processing - temporarily commented out
 // pub mod midi2_mpe;
 
-// Web interface - browser-based remote control - temporarily commented out
-// pub mod web_interface;
+// Web interface - browser-based remote control (gated behind `webui` feature)
+#[cfg(feature = "webui")]
+pub mod web_interface;
 
 // Modular patch system - NoiseCraft/Pure Data inspired visual programming
 pub mod modular_patch_system;

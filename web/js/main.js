@@ -14,6 +14,7 @@ const AppState = {
     metronomeEnabled: true,
     zoom: 1.0,
     tracks: [],
+    selectedTrackId: null,
     scenes: [],
     nodes: [],
     connections: [],
@@ -381,6 +382,25 @@ function initUI() {
     // Initialize settings button
     DOM.settingsBtn.addEventListener('click', () => showSettingsModal());
 
+    // Inspector toggle (header)
+    const inspectorToggleBtn = document.querySelector('.toggle-inspector-btn');
+    if (inspectorToggleBtn) {
+        inspectorToggleBtn.addEventListener('click', () => toggleInspectorPanel());
+    }
+
+    // Audio monitor toggles (header and footer)
+    const audioMonHeaderToggle = document.querySelector('.toggle-audio-monitor-btn');
+    const audioMonFooterToggle = document.querySelector('.audio-monitor-toggle');
+    if (audioMonHeaderToggle) {
+        audioMonHeaderToggle.addEventListener('click', () => toggleAudioMonitor());
+    }
+    if (audioMonFooterToggle) {
+        audioMonFooterToggle.addEventListener('click', () => toggleAudioMonitor());
+    }
+
+    // Wire inspector controls
+    setupInspectorControls();
+
     console.log('✅ UI components initialized');
 }
 
@@ -414,6 +434,9 @@ function setupEventListeners() {
     // Before unload
     window.addEventListener('beforeunload', handleBeforeUnload);
 
+    // Start audio monitor meter updates
+    startAudioMonitorLoop();
+
     console.log('✅ Event listeners set up');
 }
 
@@ -431,7 +454,219 @@ function initializeDefaultState() {
     // Update UI
     updateUI();
 
+    // Initialize inspector with first track
+    if (AppState.tracks && AppState.tracks.length > 0) {
+        AppState.selectedTrackId = AppState.tracks[0].id;
+    }
+    updateInspectorPanel();
+
     console.log('✅ Default state initialized');
+}
+
+// Select a track and update inspector
+function selectTrack(trackId) {
+    AppState.selectedTrackId = trackId;
+    updateInspectorPanel();
+    // Ensure inspector is visible when selecting a track
+    const inspectorPanel = document.getElementById('inspector-panel');
+    if (inspectorPanel && inspectorPanel.classList.contains('collapsed')) {
+        inspectorPanel.classList.remove('collapsed');
+        inspectorPanel.setAttribute('aria-hidden', 'false');
+        const toggle = inspectorPanel.querySelector('.panel-toggle');
+        if (toggle) {
+            toggle.textContent = '−';
+            toggle.setAttribute('aria-expanded', 'true');
+        }
+    }
+}
+
+// Update inspector panel contents based on selected track
+function updateInspectorPanel() {
+    const inspectorPanel = document.getElementById('inspector-panel');
+    if (!inspectorPanel) return;
+
+    const empty = inspectorPanel.querySelector('.inspector-empty');
+    const fields = inspectorPanel.querySelector('.inspector-fields');
+    const nameEl = document.getElementById('inspector-name');
+    const typeEl = document.getElementById('inspector-type');
+    const inputEl = document.getElementById('inspector-input');
+    const volEl = document.getElementById('inspector-volume');
+    const panEl = document.getElementById('inspector-pan');
+    const muteBtn = document.getElementById('inspector-mute');
+    const soloBtn = document.getElementById('inspector-solo');
+    const armBtn = document.getElementById('inspector-arm');
+
+    const track = AppState.tracks.find(t => t.id === AppState.selectedTrackId);
+
+    if (!track) {
+        if (empty) empty.style.display = 'block';
+        if (fields) fields.style.display = 'none';
+        return;
+    }
+
+    if (empty) empty.style.display = 'none';
+    if (fields) fields.style.display = 'block';
+
+    if (nameEl) nameEl.textContent = track.name || '—';
+    if (typeEl) typeEl.textContent = track.type || '—';
+    if (inputEl) inputEl.textContent = track.input || 'None';
+    if (volEl) volEl.value = Math.round((track.volume ?? 0.8) * 100);
+    if (panEl) panEl.value = Math.round((track.panValue ?? 0) * 50);
+
+    if (muteBtn) muteBtn.classList.toggle('active', !!track.mute);
+    if (soloBtn) soloBtn.classList.toggle('active', !!track.solo);
+    if (armBtn) armBtn.classList.toggle('active', !!track.armed);
+}
+
+// Wire inspector control events
+function setupInspectorControls() {
+    const volEl = document.getElementById('inspector-volume');
+    const panEl = document.getElementById('inspector-pan');
+    const muteBtn = document.getElementById('inspector-mute');
+    const soloBtn = document.getElementById('inspector-solo');
+    const armBtn = document.getElementById('inspector-arm');
+
+    if (volEl) {
+        volEl.addEventListener('input', (e) => {
+            const trackId = AppState.selectedTrackId;
+            if (!trackId) return;
+            const vol = clamp(e.target.value / 100, 0, 1);
+            if (window.AudioEngine && AudioEngine.setTrackVolume) {
+                AudioEngine.setTrackVolume(trackId, vol);
+            }
+            const track = AppState.tracks.find(t => t.id === trackId);
+            if (track) track.volume = vol;
+            if (window.ArrangementView && ArrangementView.updateTrackHeader) {
+                ArrangementView.updateTrackHeader(trackId);
+            }
+            const mixer = window.UIManager?.getComponent ? UIManager.getComponent('mixer') : null;
+            if (mixer && mixer.createMixerChannels) mixer.createMixerChannels();
+        });
+    }
+    if (panEl) {
+        panEl.addEventListener('input', (e) => {
+            const trackId = AppState.selectedTrackId;
+            if (!trackId) return;
+            const pan = clamp(e.target.value / 50, -1, 1);
+            if (window.AudioEngine && AudioEngine.setTrackPan) {
+                AudioEngine.setTrackPan(trackId, pan);
+            }
+            const track = AppState.tracks.find(t => t.id === trackId);
+            if (track) track.panValue = pan;
+            if (window.ArrangementView && ArrangementView.updateTrackHeader) {
+                ArrangementView.updateTrackHeader(trackId);
+            }
+            const mixer = window.UIManager?.getComponent ? UIManager.getComponent('mixer') : null;
+            if (mixer && mixer.createMixerChannels) mixer.createMixerChannels();
+        });
+    }
+    if (muteBtn) {
+        muteBtn.addEventListener('click', () => {
+            const trackId = AppState.selectedTrackId; if (!trackId) return;
+            const track = AppState.tracks.find(t => t.id === trackId); if (!track) return;
+            const newMute = !track.mute;
+            if (window.AudioEngine && AudioEngine.setTrackMute) {
+                AudioEngine.setTrackMute(trackId, newMute);
+            }
+            track.mute = newMute;
+            updateInspectorPanel();
+            if (window.ArrangementView && ArrangementView.updateTrackHeader) {
+                ArrangementView.updateTrackHeader(trackId);
+            }
+            const mixer = window.UIManager?.getComponent ? UIManager.getComponent('mixer') : null;
+            if (mixer && mixer.createMixerChannels) mixer.createMixerChannels();
+        });
+    }
+    if (soloBtn) {
+        soloBtn.addEventListener('click', () => {
+            const trackId = AppState.selectedTrackId; if (!trackId) return;
+            const track = AppState.tracks.find(t => t.id === trackId); if (!track) return;
+            const newSolo = !track.solo;
+            if (window.AudioEngine && AudioEngine.setTrackSolo) {
+                AudioEngine.setTrackSolo(trackId, newSolo);
+            }
+            track.solo = newSolo;
+            updateInspectorPanel();
+            if (window.ArrangementView && ArrangementView.updateTrackHeader) {
+                ArrangementView.updateTrackHeader(trackId);
+            }
+            const mixer = window.UIManager?.getComponent ? UIManager.getComponent('mixer') : null;
+            if (mixer && mixer.createMixerChannels) mixer.createMixerChannels();
+        });
+    }
+    if (armBtn) {
+        armBtn.addEventListener('click', () => {
+            const trackId = AppState.selectedTrackId; if (!trackId) return;
+            const track = AppState.tracks.find(t => t.id === trackId); if (!track) return;
+            track.armed = !track.armed;
+            updateInspectorPanel();
+            if (window.ArrangementView && ArrangementView.updateTrackHeader) {
+                ArrangementView.updateTrackHeader(trackId);
+            }
+        });
+    }
+}
+
+// Toggle inspector sidebar collapsed state
+function toggleInspectorPanel() {
+    const inspectorPanel = document.getElementById('inspector-panel');
+    if (!inspectorPanel) return;
+    const isCollapsed = inspectorPanel.classList.contains('collapsed');
+    if (isCollapsed) {
+        inspectorPanel.classList.remove('collapsed');
+        inspectorPanel.setAttribute('aria-hidden', 'false');
+    } else {
+        inspectorPanel.classList.add('collapsed');
+        inspectorPanel.setAttribute('aria-hidden', 'true');
+    }
+    const toggle = inspectorPanel.querySelector('.panel-toggle');
+    if (toggle) {
+        toggle.textContent = inspectorPanel.classList.contains('collapsed') ? '+' : '−';
+        toggle.setAttribute('aria-expanded', inspectorPanel.classList.contains('collapsed') ? 'false' : 'true');
+    }
+}
+
+// Toggle audio monitor visibility
+function toggleAudioMonitor() {
+    const audioMon = document.getElementById('audio-monitor');
+    if (!audioMon) return;
+    audioMon.classList.toggle('collapsed');
+}
+
+// Drive audio monitor meters using AudioEngine.getStereoLevels()
+function startAudioMonitorLoop() {
+    const leftFill = document.getElementById('meter-left');
+    const rightFill = document.getElementById('meter-right');
+    const leftVal = document.getElementById('meter-left-value');
+    const rightVal = document.getElementById('meter-right-value');
+
+    function updateMeters() {
+        if (!(window.AudioEngine && AudioEngine.getStereoLevels)) {
+            requestAnimationFrame(updateMeters);
+            return;
+        }
+
+        const { left, right } = AudioEngine.getStereoLevels();
+        // Map dB (-Infinity..0) to 0..100%
+        const mapDbToPct = (db) => {
+            const minDb = -60; // floor
+            if (!isFinite(db)) return 0;
+            const clamped = Math.max(minDb, Math.min(0, db));
+            return Math.round(((clamped - minDb) / (0 - minDb)) * 100);
+        };
+
+        const lp = mapDbToPct(left);
+        const rp = mapDbToPct(right);
+
+        if (leftFill) leftFill.style.height = `${lp}%`;
+        if (rightFill) rightFill.style.height = `${rp}%`;
+        if (leftVal) leftVal.textContent = isFinite(left) ? `${left.toFixed(1)} dB` : '-∞ dB';
+        if (rightVal) rightVal.textContent = isFinite(right) ? `${right.toFixed(1)} dB` : '-∞ dB';
+
+        requestAnimationFrame(updateMeters);
+    }
+
+    requestAnimationFrame(updateMeters);
 }
 
 // Create default tracks
@@ -843,5 +1078,6 @@ window.ModurustDAW = {
     saveState: saveAppState,
     loadState: loadAppState,
     isUsingBevyUI: () => AppState.useBevyUI,
-    getBevyUI: () => AppState.bevyUI
+    getBevyUI: () => AppState.bevyUI,
+    selectTrack
 };

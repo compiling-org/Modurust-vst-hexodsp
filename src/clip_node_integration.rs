@@ -233,7 +233,7 @@ impl ClipNodeIntegration {
             // Create appropriate node based on clip type
             if let Ok(mut node_manager) = self.node_manager.lock() {
                 let node_id = match &clip.clip_type {
-                    ClipType::Audio { file_path, start_offset, end_offset, speed, loop_enabled } => {
+                    ClipType::Audio { file_path: _file_path, start_offset, end_offset, speed, loop_enabled } => {
                         // Create audio sample player node
                         let node_id = node_manager.create_node(
                             "sample_player", 
@@ -250,7 +250,7 @@ impl ClipNodeIntegration {
                         
                         node_id
                     },
-                    ClipType::Midi { notes, target_instrument } => {
+                    ClipType::Midi { notes, target_instrument: _ } => {
                         // Create MIDI sequence player node
                         let node_id = node_manager.create_node(
                             "midi_sequencer", 
@@ -264,7 +264,7 @@ impl ClipNodeIntegration {
                         
                         node_id
                     },
-                    ClipType::Automation { target_param, points, curve_type } => {
+                    ClipType::Automation { target_param: _, points, curve_type } => {
                         // Create automation player node
                         let node_id = node_manager.create_node(
                             "automation_player", 
@@ -278,7 +278,7 @@ impl ClipNodeIntegration {
                         
                         node_id
                     },
-                    ClipType::Pattern { pattern_data, pattern_type } => {
+                    ClipType::Pattern { pattern_data: _, pattern_type: _ } => {
                         // Create pattern player node
                         let node_id = node_manager.create_node(
                             "pattern_player", 

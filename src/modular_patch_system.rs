@@ -205,6 +205,7 @@ pub struct Connection {
 
 /// Modular patch manager for loading, saving, and organizing patches
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ModularPatchManager {
     patches: HashMap<Uuid, ModularPatch>,
     current_patch: Option<Uuid>,

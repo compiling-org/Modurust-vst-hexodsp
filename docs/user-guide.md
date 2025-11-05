@@ -28,6 +28,21 @@ Modurust features a revolutionary three-view system:
 - **Node Library**: 8 core audio node types
 - **Connections**: Visual representation of signal flow
 - **Real-time Editing**: Modify patches while playing
+ 
+### Desktop Demo Walkthrough (Windows)
+- Run: `cargo run` (desktop window opens; no browser involved).
+- Open Node View and add nodes in order: `Sine Oscillator` → `Low-Pass Filter (LPF)` → `Delay` → `Output`.
+- Create connections: `Osc → LPF → Delay → Output`.
+- Click `Play` to enable audio; use `Stop` to disable.
+- Select a node to reveal its parameter panel:
+  - Oscillator: adjust `Frequency` (e.g., 220–880 Hz).
+  - LPF: adjust `Cutoff` (e.g., 200–8000 Hz).
+  - Delay: adjust `Feedback` (e.g., 0.0–0.8).
+- Canvas controls for visuals:
+  - `Sides` slider (3–12) re-renders polygon nodes (default 6 = hex).
+  - `Ports on vertices` moves ports to corners; wiring remains valid.
+  - `Lock Nodes` and `Grid Snap` affect drag behavior.
+- Expected: audible output via CPAL; parameter tweaks change sound immediately.
 
 ## Basic Workflow
 

@@ -118,10 +118,13 @@
 ## Bug Fixes and Improvements
 
 #### UI System Implementation
-- **Blank screen issue resolved** - Successfully migrated from Bevy to pure egui
-- **Three-view UI system** fully functional with Arrangement/Live/Node modes
-- **Cross-platform compatibility** achieved with bevy_egui
-- **Real-time UI updates** with proper state management
+- **Bevy+egui stabilization on Windows** – Fixed panic and blank UI by:
+  - Scheduling UI in `EguiPrimaryContextPass` so `egui::Context::run` has executed
+  - Adding a `Camera2d` entity (required by bevy_egui)
+  - Handling `EguiContexts::ctx_mut()` Result properly
+  - Disabling Bevy `LogPlugin` to avoid double logger with `env_logger`
+- **Minimal UI window confirmed working** – baseline window renders; integration of full UI is staged
+- **Three-view UI system** remains the design target; eframe path retained for reference while bevy_egui path is active
 
 #### Compilation Issues Resolved
 - **Dependency conflicts** in Cargo.toml resolved
@@ -159,9 +162,11 @@ This comprehensive documentation ensures transparency, reproducibility, and comm
 ## Implementation Status Notes (2025-11)
 
 - **UI ↔ Audio Bridge**: Crossbeam-based bridge in `src/audio_engine/bridge.rs` is active; feedback bus returns transport and meters.
-- **Event Queue for Automation**: `src/event_queue.rs` implements a lock-free time-stamped queue; integration into audio callback pending.
-- **Node View Mapping**: Hexagonal Node View renders nodes/ports; audio engine does not yet create/connect nodes from UI interactions.
-- **Protocol Coverage**: `AudioParamMessage` includes node ops and `SetParameter`, but `HexoDSPEngine` currently handles transport/volume only.
-- **Atomic Parameters**: `NodeInstanceManager` uses `Mutex<f32>`; atomic primitives should be adopted for RT safety.
+- **Bevy+egui runtime fix**: Minimal egui window renders via Bevy; next step is porting full `UiState` and view states to Bevy Resources or thin wrapper Resources.
+- **Event Queue for Automation**: `src/event_queue.rs` implements a lock-free time-stamped queue; integration into audio callback pending (critical for sample-accurate automation).
+- **Node View Mapping**: Hexagonal Node View renders nodes/ports; audio engine does not yet create/connect nodes from UI interactions (requires `NodeInstanceManager` integration with `HexoDSPEngine`).
+- **Protocol Coverage**: `AudioParamMessage` includes node ops and `SetParameter`, but `HexoDSPEngine` currently handles transport/volume only (node-specific message handling unimplemented).
+- **Atomic Parameters**: `NodeInstanceManager` uses `Arc<Mutex<f32>>` for parameter storage (non-RT-safe; replace with `AtomicF32` or split-atomic design).
 - **Time/Pitch Modules**: Phase vocoder and FFT band routing are planned; no `rustfft` modules are wired into `dsp_core` today.
 - **Modu-Commit Workflow**: UI buttons exist; snapshotting/branching logic and storage are future work.
+- **Inactive Core Modules**: 15 root-level modules (e.g., `ai_audio.rs`, `midi2_mpe.rs`, `transport_sync.rs`) are present but not compiled/integrated into the system.

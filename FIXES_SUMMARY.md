@@ -105,6 +105,98 @@ To resolve the remaining Egui context issue:
 The hexoDSP project has been transformed from a non-compiling state with 174+ errors to a fully functional, compilable application. All advanced UI features have been preserved, and the application successfully launches with a professional-grade interface framework.
 
 The remaining runtime graphics context issue is minor compared to the comprehensive compilation fixes achieved and does not impact the core application functionality.
+
+---
+
+## Unified Task Tracker
+
+This section tracks the comprehensive, high-priority roadmap items and their completion status across the whole DAW. It is designed to work with your automation scripts and to be updated incrementally as we progress.
+
+### Status Legend
+- [x] Completed
+- [>] In progress
+- [ ] Not started
+
+### Critical Path
+- [x] Silence default test tone (set `tone_amp`/`tone_amp_smooth` to `0.0`)
+- [x] Gate test tone generation when amplitude is zero
+- [x] Stabilize egui widget IDs in Bevy UI (use `ui.push_id` around sliders)
+- [>] Build and runtime verification pass (desktop) — compilation OK, runtime validation ongoing
+
+### Audio Engine
+- [ ] Integrate `HexoDSPEngine.process_audio` with transport play/pause gating
+- [ ] Route node graph output through CPAL callback with sample-accurate timing
+- [ ] Input monitoring toggle and latency-safe mix-in
+- [ ] Replace temporary tone path with master bus output
+
+### Transport & Playback
+- [ ] Ensure `AudioParamMessage::Play/Stop/Pause/Record` fully drive transport and audio routing
+- [ ] Loop region: sample-conversion verification and boundary clamping
+- [ ] Tempo changes: live-resample or time-base recalculation without glitches
+
+### Node Graph & Routing
+- [ ] UI → Engine node creation/deletion mapping for all node types
+- [ ] Port-level connections and disconnections propagated reliably
+- [ ] Parameter updates (frequency, gain, Q, etc.) RT-safe and click-free
+- [ ] Graph validation and auto-repair on broken connections
+
+### Mixer & Returns
+- [ ] Master/track/return volume and pan are sample-accurate and thread-safe
+- [ ] Solo/mute states and pre/post-fader sends implemented
+- [ ] Level meters show peaks/RMS with smoothing
+
+### Arrangement View
+- [ ] Clips: placement, trimming, and crossfades functional
+- [ ] Automation curves: `Serialize`/`Deserialize` for save/load; runtime application
+- [ ] Track routing and clip operations fully operational
+
+### Live View
+- [ ] Clip matrix triggering and quantization
+- [ ] Crossfader routing and scene launch
+- [ ] Performance recording into arrangement
+
+### File Save/Load
+- [ ] Derive `Serialize`/`Deserialize` for `UiState`, `ArrangementViewState`, `LiveViewState`, `NodeViewState`
+- [ ] Ensure nested types (AutomationCurve, TrackRoute, ClipOperation, etc.) derive or implement Serde
+- [ ] Project save/load with versioned schema and migration helpers
+
+### Plugins (VST3)
+- [ ] Scan, cache, and present plugin list with filters/sort
+- [ ] Load/unload plugins; parameter listing and automation mapping
+- [ ] Audio processing chain integration and latency reporting
+
+### MIDI & Controllers
+- [ ] MIDI input pipeline; mapping layer with normalization
+- [ ] MPE support; per-note controller routing
+- [ ] Learn mode and presets for common devices
+
+### UI Stability
+- [ ] Consistent `egui` ID sources for dynamic widgets (extend beyond sliders)
+- [ ] Error banners replaced with contextual troubleshooting panels
+- [ ] Persistent UI state across view switches
+
+### Performance & Diagnostics
+- [ ] RT-safe atomics for hot parameters; minimize `Mutex` on audio thread
+- [ ] Spectrum/visualization decoupled from audio thread via ring buffers
+- [ ] Diagnostics panel with frame time, buffer xruns, CPU, and memory
+
+### Testing & QA
+- [ ] Unit tests for transport, node graph ops, and serialization
+- [ ] Integration tests for UI ↔ Audio bridge messages
+- [ ] Smoke tests for VST3 host and plugin parameter round-trip
+
+### Web & Cross-Platform
+- [ ] WebAssembly build verification and progressive enhancement path
+- [ ] Web UI transport and audio visualization parity
+
+### Polish & UX
+- [ ] Menu polish; contextual right-click menus; tooltips
+- [ ] Undo/redo across arrangement and node operations
+- [ ] Project templates and onboarding flow
+
+### Current Session Notes
+- Build succeeds; warnings noted. CPAL test tone silenced and gated. Widget ID stability implemented via `ui.push_id`. Next planned implementation focus: transport gating of graph processing and serializability audit for Arrangement/Live/Node view states.
+
 # Fixes and Progress Summary
 
 This document tracks recent accomplishments, key fixes, and the remaining task backlog for HexoDSP DAW.
@@ -146,6 +238,17 @@ Last updated: automated assistant update.
 ### Backlog Addendum
 - Integrate `modular_patch_manager` into `UiState` (or refactor `eframe_ui_full.rs` calls) using `src/modular_patch_system.rs`.
 
+## Latest Update (2025-11-05)
+- Play/Pause toggle in `egui_ui_full.rs` transport bar now correctly sends `AudioParamMessage::Pause` when playing, and `AudioParamMessage::Play` otherwise (no visual change).
+- Loop controls converted from ephemeral to persistent `UiState` fields (`loop_enabled`, `loop_start_beats`, `loop_end_beats`); changes send `AudioParamMessage::SetLoop` with clamping and debounce.
+- Safe-mode UI panic logging in `bevy_egui_ui.rs` rate-limited to one write every ~2 seconds based on file last-modified time.
+- Added `scripts/check_ui_and_compile.ps1` to tail UI panic logs and run `cargo check` / `cargo build` for desktop-only builds.
+- Validation: `cargo check --no-default-features` passes cleanly on Windows; no warnings emitted in the last run.
+
+### Session Notes (2025-11-05)
+- Transport controls remain visually consistent; behavior aligned with engine messaging.
+- Next: expose loop snap presets and simple rewind/forward; verify master mute gating path.
+- Suggest adding minimal integration tests for SetLoop and Play/Pause message handling.
 ## Latest Update (2024-05-15)
 - Added `bevy_winit = "0.17"` to `Cargo.toml` to address `WinitPlugin` related errors.
 - Resolved `E0117` error related to `WakeUp` and `WinitPlugin` by correctly adding `bevy_winit` dependency.

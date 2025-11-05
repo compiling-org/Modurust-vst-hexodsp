@@ -132,6 +132,8 @@
                                 <option value="midi">MIDI Track</option>
                                 <option value="group">Group Track</option>
                             </select>
+                            <button class="toggle-inspector-btn" title="Toggle Track Inspector">🧭 Inspector</button>
+                            <button class="toggle-audio-monitor-btn" title="Toggle Audio Monitor">🖥️ Audio Mon</button>
                         </div>
                         <div class="timeline-controls">
                             <button class="zoom-in-btn">+</button>
@@ -234,6 +236,37 @@
                 </div>
             </aside>
 
+            <!-- Right Sidebar - Track Inspector (collapsible) -->
+            <aside class="sidebar-right collapsed" id="inspector-panel" aria-hidden="true">
+                <div class="panel-header">
+                    <h3>Track Inspector</h3>
+                    <button class="panel-toggle" aria-expanded="false">+</button>
+                </div>
+                <div class="panel-content">
+                    <div class="inspector-content">
+                        <div class="inspector-empty">No track selected</div>
+                        <div class="inspector-fields" style="display:none;">
+                            <div class="inspector-field"><label>Name</label><span id="inspector-name">—</span></div>
+                            <div class="inspector-field"><label>Type</label><span id="inspector-type">—</span></div>
+                            <div class="inspector-field"><label>Input</label><span id="inspector-input">—</span></div>
+                            <div class="inspector-field">
+                                <label>Volume</label>
+                                <input type="range" id="inspector-volume" min="0" max="100" value="80">
+                            </div>
+                            <div class="inspector-field">
+                                <label>Pan</label>
+                                <input type="range" id="inspector-pan" min="-50" max="50" value="0">
+                            </div>
+                            <div class="inspector-buttons">
+                                <button id="inspector-mute">Mute</button>
+                                <button id="inspector-solo">Solo</button>
+                                <button id="inspector-arm">Arm</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
         </main>
 
         <!-- Bottom Panel - Transport & Info -->
@@ -250,6 +283,26 @@
                         <div class="cpu-fill" style="width: 15%"></div>
                     </div>
                     <span>15%</span>
+                </div>
+                <div class="audio-monitor collapsed" id="audio-monitor">
+                    <div class="audio-monitor-header">
+                        <h3>Audio Monitor</h3>
+                        <button class="audio-monitor-toggle" title="Toggle Audio Monitor">🖥️</button>
+                    </div>
+                    <div class="audio-monitor-content">
+                        <div class="meter stereo-meter">
+                            <div class="meter-channel">
+                                <div class="meter-label">L</div>
+                                <div class="meter-bar"><div class="meter-fill" id="meter-left"></div></div>
+                                <div class="meter-value" id="meter-left-value">-∞ dB</div>
+                            </div>
+                            <div class="meter-channel">
+                                <div class="meter-label">R</div>
+                                <div class="meter-bar"><div class="meter-fill" id="meter-right"></div></div>
+                                <div class="meter-value" id="meter-right-value">-∞ dB</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </footer>

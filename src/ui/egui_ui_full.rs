@@ -1,4 +1,4 @@
-/// eframe-based UI Framework for HexoDSP DAW
+/// egui-based UI Framework for HexoDSP DAW (driven by Bevy+egui)
 ///
 /// This module implements the revolutionary three-view UI system:
 /// - Arrangement View: Traditional DAW timeline/arrangement
@@ -10,15 +10,15 @@ use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use std::fs;
 use serde::{Serialize, Deserialize};
-use serde_json;
-use crate::audio_engine::bridge::{AudioEngineBridge, AudioEngineState, AudioParamMessage};
+
+use crate::audio_engine::bridge::{AudioEngineBridge, AudioParamMessage};
 use crate::audio_engine::cpal_io::AudioIO;
 use crate::node_instance_manager::NodeInstanceManager;
 use crate::clip_node_integration::ClipNodeIntegration;
 use crate::ui::hexagonal_node_view::HexNodeViewState;
 use crate::presets::{PresetManager, PresetCategory};
 // Temporarily commented out to isolate compilation issues
-use crate::vst3_host::{VST3Host, VST3Plugin};
+use crate::vst3_host::VST3Host;
 // use crate::midi2_mpe::{Midi2Processor, MPEConfig};
 // use crate::web_interface::{WebInterfaceServer, WebInterfaceConfig};
 // use crate::modular_patch_system::{ModularPatchManager, ModularNode, NodeType};
@@ -73,6 +73,11 @@ pub struct UiState {
     pub show_transport: bool,
     pub show_mixer: bool,
     pub show_browser: bool,
+    // New view flags
+    pub show_track_inspector: bool,
+    pub show_audio_monitor: bool,
+    // Mixer behavior flags
+    pub mixer_show_only_buses: bool,
     pub zoom_level: f32,
     pub pan_offset: (f32, f32), // Using tuple instead of Vec2
     // Theme controls
@@ -143,6 +148,10 @@ pub struct UiState {
     pub show_modular_patches: bool,
     pub show_theme_editor: bool,
     pub web_server_running: bool,
+    // Transport loop settings (persisted for demo stability)
+    pub loop_enabled: bool,
+    pub loop_start_beats: f32,
+    pub loop_end_beats: f32,
 }
 
 impl Default for UiState {
@@ -152,6 +161,9 @@ impl Default for UiState {
             show_transport: true,
             show_mixer: true,
             show_browser: true,
+            show_track_inspector: true,
+            show_audio_monitor: true,
+            mixer_show_only_buses: true,
             zoom_level: 1.0,
             pan_offset: (0.0, 0.0),
             dark_mode: true,
@@ -208,6 +220,10 @@ impl Default for UiState {
             show_modular_patches: false,
             show_theme_editor: false,
             web_server_running: false,
+            // Transport loop defaults
+            loop_enabled: false,
+            loop_start_beats: 0.0,
+            loop_end_beats: 4.0,
         };
 
         // Initialize 12 default ChannelState structs
@@ -916,18 +932,15 @@ pub struct HexoDSPApp {
     pub audio_io: Arc<Mutex<AudioIO>>, // keep audio stream alive
 }
 
-impl Default for HexoDSPApp {
-    fn default() -> Self {
-        Self::new_with_state(UiState::default())
-    }
-}
+
+use crate::event_queue::EventQueue;
 
 impl HexoDSPApp {
-    pub fn new_with_state(ui_state: UiState) -> Self {
+    pub fn new_with_state(_ui_state: UiState, event_queue: Arc<EventQueue>) -> Self {
         // TEMPORARILY DISABLE ALL AUDIO TO STOP FEEDBACK - UI ONLY MODE
         // TODO: Implement proper audio system without feedback
         println!("🔇 AUDIO DISABLED - UI ONLY MODE TO PREVENT FEEDBACK");
-        let audio_io = AudioIO::new().expect("Failed to initialize AudioIO");
+        let audio_io = AudioIO::new(event_queue.clone()).expect("Failed to initialize AudioIO");
         // DO NOT START ANY AUDIO STREAMS
         let audio_io_arc = Arc::new(Mutex::new(audio_io));
 
@@ -943,11 +956,15 @@ impl HexoDSPApp {
         let mut ui_state = UiState::default();
         ui_state.audio_bridge = Some(bridge_arc.clone());
 
+        // Initialize node view state and inject audio bridge into hex canvas
+        let mut node_state = NodeViewState::default();
+        node_state.hex.set_audio_bridge(bridge_arc.clone());
+
         Self {
             ui_state,
             arrangement_state: ArrangementViewState::default(),
             live_state: LiveViewState::default(),
-            node_state: NodeViewState::default(),
+            node_state,
             audio_bridge: bridge_arc,
             node_manager,
             clip_integration,
@@ -959,6 +976,7 @@ impl HexoDSPApp {
 // Removed eframe::App implementation; UI is driven via egui contexts without eframe.
 
 /// Renders the DAW's main timeline/arrangement view.
+    #[allow(dead_code)]
 fn arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
     ui.heading("🎼 Arrangement View");
     ui.label(format!("Timeline Position: {:.2} beats", state.timeline_position));
@@ -971,6 +989,7 @@ fn arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
 }
 
 /// Renders the DAW's real-time performance (Live) view.
+    #[allow(dead_code)]
 fn live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
     ui.heading("🎵 Live View - Real-time Performance");
     ui.separator();
@@ -983,6 +1002,7 @@ fn live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
 }
 
 /// Renders the DAW's modular node-based patching view.
+    #[allow(dead_code)]
 fn node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
     ui.heading("🔗 Node View - Modular Patching");
     ui.separator();
@@ -1014,30 +1034,56 @@ fn node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
 }
 
 /// Renders the transport (play/stop/tempo) bar.
+    #[allow(dead_code)]
 fn transport_bar(ui: &mut egui::Ui, ui_state: &mut UiState) {
     ui.horizontal(|ui| {
         ui.label("⏱️");
         if ui.button("▶").clicked() {
-            if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::Play); }
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let playing = bridge
+                        .get_audio_state(25)
+                        .map(|s| s.playing)
+                        .unwrap_or(false);
+                    let msg = if playing {
+                        AudioParamMessage::Pause
+                    } else {
+                        AudioParamMessage::Play
+                    };
+                    let _ = bridge.send_param(msg);
+                }
+            }
         }
         if ui.button("◼").clicked() {
-            if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::Stop); }
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::Stop);
+                }
+            }
         }
         if ui.button("⏺").clicked() {
-            if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::Record); }
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::Record);
+                }
+            }
         }
         ui.separator();
         // Placeholder for tempo
         let mut tempo = 120.0;
         ui.label("BPM:");
-        if ui.add(egui::DragValue::new(&mut tempo).clamp_range(40.0..=300.0).suffix(" BPM")).changed() {
-            if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::SetTempo(tempo)); }
+        if ui.add(egui::DragValue::new(&mut tempo).range(40.0..=300.0).suffix(" BPM")).changed() {
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::SetTempo(tempo));
+                }
+            }
         }
     });
 }
 
-/// Main UI System - Full eframe Implementation
-/// Uses eframe's native App structure
+/// Main UI System - Full egui Implementation
+/// Driven by Bevy's EguiContexts
 pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state: &mut ArrangementViewState, live_state: &mut LiveViewState, node_state: &mut NodeViewState) {
     apply_theme(ctx, ui_state);
     // Professional menu bar with all DAW features
@@ -1077,7 +1123,11 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 ui.separator();
                 ui.checkbox(&mut ui_state.show_browser, "📁 Browser");
                 ui.checkbox(&mut ui_state.show_mixer, "🎛️ Mixer");
+                ui.checkbox(&mut ui_state.show_track_inspector, "🧭 Track Inspector");
                 ui.checkbox(&mut ui_state.show_transport, "🎵 Transport");
+                ui.checkbox(&mut ui_state.show_audio_monitor, "🖥️ Audio Monitor");
+                ui.separator();
+                ui.checkbox(&mut ui_state.mixer_show_only_buses, "🎛️ Mixer: Buses Only");
                 ui.separator();
                 if ui.button("🔍 Zoom In").clicked() { println!("Zoom in"); }
                 if ui.button("🔍 Zoom Out").clicked() { println!("Zoom out"); }
@@ -1141,6 +1191,9 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 ui.checkbox(&mut ui_state.dark_mode, "Dark Mode");
                 ui.add(egui::Slider::new(&mut ui_state.font_scale, 0.8..=1.6).text("Font Scale"));
                 ui.add(egui::Slider::new(&mut ui_state.contrast, 0.5..=1.5).text("Contrast"));
+                if ui.button("Reset UI Scale").clicked() {
+                    ui_state.font_scale = 1.0;
+                }
             });
 
             ui.separator();
@@ -1214,7 +1267,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 }
 
                 for file in &ui_state.browser_files.clone() {
-                    let id = ui.make_persistent_id(&file.path);
+                    let _id = ui.make_persistent_id(&file.path);
                     // Removed egui::DragAndDrop::drag_source; render row directly.
                     ui.horizontal(|ui| {
                         // File type icon
@@ -1331,6 +1384,64 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
         });
     }
 
+    // Arrangement Track Inspector (right side when mixer is hidden)
+    if ui_state.current_view == UIViewMode::Arrangement && ui_state.show_track_inspector && !ui_state.show_mixer {
+        egui::SidePanel::right("track_inspector").show(ctx, |ui| {
+            ui.set_min_width(280.0);
+            ui.heading("🧭 Track Inspector");
+            if arrangement_state.selected_tracks.is_empty() {
+                ui.label("No track selected");
+            } else {
+                for &track_idx in &arrangement_state.selected_tracks {
+                    ui.separator();
+                    ui.group(|ui| {
+                        let name = ui_state
+                            .track_channels
+                            .get(track_idx)
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|| format!("Track {}", track_idx + 1));
+                        ui.label(format!("🎵 {}", name));
+
+                        if let Some(ch) = ui_state.track_channels.get_mut(track_idx) {
+                            ui.label("Input:");
+                            egui::ComboBox::from_label("")
+                                .selected_text(&ch.input)
+                                .show_ui(ui, |ui| {
+                                    let inputs = [
+                                        "Mic 1", "Mic 2", "DI 1", "DI 2", "Line 1", "Line 2",
+                                        "Return A", "Return B", "Return C", "Return D",
+                                        "Bus 1", "Bus 2", "None",
+                                    ];
+                                    for input_name in inputs.iter() {
+                                        ui.selectable_value(&mut ch.input, input_name.to_string(), *input_name);
+                                    }
+                                });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Vol:");
+                                if ui.add(egui::Slider::new(&mut ch.volume, 0.0..=1.0)).changed() {
+                                    if let Some(br) = &ui_state.audio_bridge {
+                                        if let Ok(bridge) = br.lock() {
+                                            let _ = bridge.send_param(AudioParamMessage::TrackVolume(track_idx, ch.volume));
+                                        }
+                                    }
+                                }
+                                ui.label("Pan:");
+                                ui.add(egui::Slider::new(&mut ch.pan, -1.0..=1.0));
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut ch.mute, "Mute");
+                                ui.checkbox(&mut ch.solo, "Solo");
+                                ui.checkbox(&mut ch.arm, "Arm");
+                            });
+                        }
+                    });
+                }
+            }
+        });
+    }
+
     if ui_state.show_mixer {
         egui::SidePanel::right("mixer").show(ctx, |ui| {
             ui.set_min_width(400.0);
@@ -1356,7 +1467,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label("⚠️ Input Monitor");
-                        ui.checkbox(&mut ui_state.input_monitoring_enabled, "Enable Input");
+                        let changed = ui.checkbox(&mut ui_state.input_monitoring_enabled, "Enable Input").changed();
+                        if changed {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                if let Ok(bridge) = br.lock() {
+                                    let _ = bridge.send_param(AudioParamMessage::SetInputMonitoring(ui_state.input_monitoring_enabled));
+                                }
+                            }
+                        }
                         if ui_state.input_monitoring_enabled {
                             ui.colored_label(egui::Color32::RED, "⚠️ FEEDBACK RISK");
                         } else {
@@ -1377,6 +1495,11 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     if ui.button("🔇 Mute All Inputs").clicked() {
                         ui_state.input_monitoring_enabled = false;
                         println!("🔇 All input monitoring disabled");
+                        if let Some(br) = &ui_state.audio_bridge {
+                            if let Ok(bridge) = br.lock() {
+                                let _ = bridge.send_param(AudioParamMessage::SetInputMonitoring(false));
+                            }
+                        }
                     }
                     if ui.button("🎧 Headphone Only").clicked() {
                         println!("🎧 Routing input to headphones only");
@@ -1395,7 +1518,11 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                         ui.label("Volume");
                         // Link to engine: send MasterVolume when changed
                         if ui.add(egui::Slider::new(&mut ui_state.master_volume, 0.0..=1.0).vertical().text("Vol")).changed() {
-                            if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::MasterVolume(ui_state.master_volume)); }
+                            if let Some(br) = &ui_state.audio_bridge {
+                                if let Ok(bridge) = br.lock() {
+                                    let _ = bridge.send_param(AudioParamMessage::MasterVolume(ui_state.master_volume));
+                                }
+                            }
                         }
                         ui.horizontal(|ui| {
                             ui.label("Peak:");
@@ -1406,8 +1533,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     // Master pan with center indicator
                     ui.vertical(|ui| {
                         ui.label("Pan");
-                        // FIX: Link to ui_state.master_pan
-                        ui.add(egui::Slider::new(&mut ui_state.master_pan, -1.0..=1.0).text("Pan"));
+                        // Link to engine: send MasterPan when changed
+                        if ui.add(egui::Slider::new(&mut ui_state.master_pan, -1.0..=1.0).text("Pan")).changed() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                if let Ok(bridge) = br.lock() {
+                                    let _ = bridge.send_param(AudioParamMessage::MasterPan(ui_state.master_pan));
+                                }
+                            }
+                        }
                         ui.horizontal(|ui| {
                             ui.label("L:");
                             ui.colored_label(egui::Color32::BLUE, "-3dB");
@@ -1419,20 +1552,32 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                 // Master controls row
                 ui.horizontal(|ui| {
-                    // FIX: Link to ui_state fields
+                    // Link to engine: send MasterMute when toggled
+                    let old_mute = ui_state.master_mute;
                     ui.checkbox(&mut ui_state.master_mute, "Mute");
+                    if ui_state.master_mute != old_mute {
+                        if let Some(br) = &ui_state.audio_bridge {
+                            if let Ok(bridge) = br.lock() {
+                                let _ = bridge.send_param(AudioParamMessage::MasterMute(ui_state.master_mute));
+                            }
+                        }
+                    }
                     ui.checkbox(&mut ui_state.master_mono, "Mono");
                     ui.checkbox(&mut ui_state.master_phase, "Phase");
                     ui.separator();
                     ui.label("Dim:");
                     // FIX: Link to ui_state.dim_level
-                    ui.add(egui::DragValue::new(&mut ui_state.dim_level).clamp_range(-60.0..=0.0).suffix(" dB"));
+                    ui.add(egui::DragValue::new(&mut ui_state.dim_level).range(-60.0..=0.0).suffix(" dB"));
                     ui.separator();
                     // Simple test tone control routed to engine
                     ui.label("Tone Freq:");
                     let mut tone_freq = 440.0_f32;
-                    if ui.add(egui::DragValue::new(&mut tone_freq).clamp_range(20.0..=20000.0).speed(10.0).suffix(" Hz")).changed() {
-                        if let Some(br) = &ui_state.audio_bridge { let _ = br.lock().unwrap().send_param(AudioParamMessage::SetParameter("frequency".to_string(), tone_freq)); }
+                    if ui.add(egui::DragValue::new(&mut tone_freq).range(20.0..=20000.0).speed(10.0).suffix(" Hz")).changed() {
+                        if let Some(br) = &ui_state.audio_bridge {
+                            if let Ok(bridge) = br.lock() {
+                                let _ = bridge.send_param(AudioParamMessage::SetParameter("frequency".to_string(), tone_freq));
+                            }
+                        }
                     }
                 });
 
@@ -1445,7 +1590,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     ui.label("📊 Master Spectrum:");
                     ui.allocate_response(egui::Vec2::new(80.0, 50.0), egui::Sense::hover());
     let spectrum_rect = ui.max_rect();
-                    ui.painter().rect_filled(spectrum_rect, egui::Rounding::same(2.0), egui::Color32::from_rgb(10, 10, 20));
+                    ui.painter().rect_filled(spectrum_rect, egui::CornerRadius::same(2_u8), egui::Color32::from_rgb(10, 10, 20));
 
                     // Draw master spectrum with more detail (simulated)
                     for i in 0..80 {
@@ -1473,15 +1618,15 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_low_gain
-                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_low_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_low_gain).range(-24.0..=24.0).suffix(" dB"));
 
                             // These next variables are fine as local since they are not in UiState
                             ui.label("Freq:");
                             let mut low_freq = 60.0;
-                            ui.add(egui::DragValue::new(&mut low_freq).clamp_range(20.0..=300.0).suffix(" Hz"));
+                            ui.add(egui::DragValue::new(&mut low_freq).range(20.0..=300.0).suffix(" Hz"));
                             ui.label("Q:");
                             let mut low_q = 0.7;
-                            ui.add(egui::DragValue::new(&mut low_q).clamp_range(0.1..=5.0));
+                            ui.add(egui::DragValue::new(&mut low_q).range(0.1..=5.0));
                         });
 
                         ui.vertical(|ui| {
@@ -1490,14 +1635,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_lmid_gain
-                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_lmid_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_lmid_gain).range(-24.0..=24.0).suffix(" dB"));
 
                             ui.label("Freq:");
                             let mut lmid_freq = 250.0;
-                            ui.add(egui::DragValue::new(&mut lmid_freq).clamp_range(100.0..=1000.0).suffix(" Hz"));
+                            ui.add(egui::DragValue::new(&mut lmid_freq).range(100.0..=1000.0).suffix(" Hz"));
                             ui.label("Q:");
                             let mut lmid_q = 1.0;
-                            ui.add(egui::DragValue::new(&mut lmid_q).clamp_range(0.1..=10.0));
+                            ui.add(egui::DragValue::new(&mut lmid_q).range(0.1..=10.0));
                         });
 
                         ui.vertical(|ui| {
@@ -1506,14 +1651,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_hmid_gain
-                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_hmid_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_hmid_gain).range(-24.0..=24.0).suffix(" dB"));
 
                             ui.label("Freq:");
                             let mut hmid_freq = 3000.0;
-                            ui.add(egui::DragValue::new(&mut hmid_freq).clamp_range(1000.0..=8000.0).suffix(" Hz"));
+                            ui.add(egui::DragValue::new(&mut hmid_freq).range(1000.0..=8000.0).suffix(" Hz"));
                             ui.label("Q:");
                             let mut hmid_q = 1.4;
-                            ui.add(egui::DragValue::new(&mut hmid_q).clamp_range(0.1..=10.0));
+                            ui.add(egui::DragValue::new(&mut hmid_q).range(0.1..=10.0));
                         });
 
                         ui.vertical(|ui| {
@@ -1522,14 +1667,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                             ui.label("Gain:");
                             // FIX: Link to ui_state.master_eq_high_gain
-                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_high_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                            ui.add(egui::DragValue::new(&mut ui_state.master_eq_high_gain).range(-24.0..=24.0).suffix(" dB"));
 
                             ui.label("Freq:");
                             let mut high_freq = 10000.0;
-                            ui.add(egui::DragValue::new(&mut high_freq).clamp_range(5000.0..=20000.0).suffix(" Hz"));
+                            ui.add(egui::DragValue::new(&mut high_freq).range(5000.0..=20000.0).suffix(" Hz"));
                             ui.label("Q:");
                             let mut high_q = 0.8;
-                            ui.add(egui::DragValue::new(&mut high_q).clamp_range(0.1..=5.0));
+                            ui.add(egui::DragValue::new(&mut high_q).range(0.1..=5.0));
                         });
                     });
 
@@ -1537,7 +1682,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     ui.label("📈 Master Frequency Response:");
                     ui.allocate_response(egui::Vec2::new(80.0, 40.0), egui::Sense::hover());
     let response_rect = ui.max_rect();
-                    ui.painter().rect_filled(response_rect, egui::Rounding::same(2.0), egui::Color32::from_rgb(15, 15, 30));
+                    ui.painter().rect_filled(response_rect, egui::CornerRadius::same(2_u8), egui::Color32::from_rgb(15, 15, 30));
 
                     // Draw master response curve (using current state for rough simulation)
                     let mut points = Vec::new();
@@ -1583,11 +1728,11 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                         ui.label("Ratio:");
                         // FIX: Link to ui_state.master_comp_ratio
-                        ui.add(egui::DragValue::new(&mut ui_state.master_comp_ratio).clamp_range(1.0..=20.0));
+                        ui.add(egui::DragValue::new(&mut ui_state.master_comp_ratio).range(1.0..=20.0));
 
                         ui.label("Threshold:");
                         // FIX: Link to ui_state.master_comp_threshold
-                        ui.add(egui::DragValue::new(&mut ui_state.master_comp_threshold).clamp_range(-40.0..=0.0).suffix(" dB"));
+                        ui.add(egui::DragValue::new(&mut ui_state.master_comp_threshold).range(-40.0..=0.0).suffix(" dB"));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Limiter:");
@@ -1595,22 +1740,23 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                         
                         ui.label("Ceiling:");
                         // FIX: Link to ui_state.master_lim_ceiling
-                        ui.add(egui::DragValue::new(&mut ui_state.master_lim_ceiling).clamp_range(-20.0..=0.0).suffix(" dB"));
+                        ui.add(egui::DragValue::new(&mut ui_state.master_lim_ceiling).range(-20.0..=0.0).suffix(" dB"));
                     });
                 });
             });
 
             ui.separator();
 
-            // Individual track channels with comprehensive controls
-            egui::ScrollArea::horizontal().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // FIX: Iterate over mutable channel state from ui_state
-                    for (i, channel_state) in ui_state.track_channels.iter_mut().enumerate().take(12) {
-                        ui.vertical(|ui| {
-                            ui.set_min_width(90.0);
-                            ui.group(|ui| {
-                                ui.label(format!("🎵 Track {}", i + 1));
+            // Individual track channels with comprehensive controls (hidden when buses-only)
+            if !ui_state.mixer_show_only_buses {
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Iterate over mutable channel state from ui_state
+                        for (i, channel_state) in ui_state.track_channels.iter_mut().enumerate().take(12) {
+                            ui.vertical(|ui| {
+                                ui.set_min_width(90.0);
+                                ui.group(|ui| {
+                                    ui.label(format!("🎵 Track {}", i + 1));
 
                                 // Input selector with routing options
                                 ui.label("Input:");
@@ -1631,8 +1777,15 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                 // Volume fader with peak metering
                                 ui.label("Volume:");
-                                // FIX: Link to channel_state.volume
-                                ui.add(egui::Slider::new(&mut channel_state.volume, 0.0..=1.0).vertical().text("Vol"));
+                                // Link to engine: send TrackVolume when changed
+                                if ui.add(egui::Slider::new(&mut channel_state.volume, 0.0..=1.0).vertical().text("Vol")).changed() {
+                                    if let Some(br) = &ui_state.audio_bridge {
+                                        match br.lock() {
+                                            Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::TrackVolume(i, channel_state.volume)); }
+                                            Err(e) => { eprintln!("Audio bridge lock failed for TrackVolume: {}", e); }
+                                        }
+                                    }
+                                }
                                 ui.horizontal(|ui| {
                                     ui.label("Peak:");
                                     ui.colored_label(egui::Color32::GREEN, "-12dB");
@@ -1641,8 +1794,15 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                 // Pan control with width
                                 ui.horizontal(|ui| {
                                     ui.label("Pan:");
-                                    // FIX: Link to channel_state.pan
-                                    ui.add(egui::Slider::new(&mut channel_state.pan, -1.0..=1.0));
+                                    // Link to engine: send TrackPan when changed
+                                    if ui.add(egui::Slider::new(&mut channel_state.pan, -1.0..=1.0)).changed() {
+                                        if let Some(br) = &ui_state.audio_bridge {
+                                            match br.lock() {
+                                                Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::TrackPan(i, channel_state.pan)); }
+                                                Err(e) => { eprintln!("Audio bridge lock failed for TrackPan: {}", e); }
+                                            }
+                                        }
+                                    }
                                     ui.label("W:");
                                     // FIX: Link to channel_state.width
                                     ui.add(egui::Slider::new(&mut channel_state.width, 0.0..=2.0));
@@ -1650,9 +1810,28 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
 
                                 // Channel controls with solo/mute/arm
                                 ui.horizontal(|ui| {
-                                    // FIX: Link to channel_state fields
+                                    // Link to engine: send TrackMute/TrackSolo when toggled
+                                    let old_mute = channel_state.mute;
                                     ui.checkbox(&mut channel_state.mute, "M"); // Mute
+                                    if channel_state.mute != old_mute {
+                                        if let Some(br) = &ui_state.audio_bridge {
+                                            match br.lock() {
+                                                Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::TrackMute(i, channel_state.mute)); }
+                                                Err(e) => { eprintln!("Audio bridge lock failed for TrackMute: {}", e); }
+                                            }
+                                        }
+                                    }
+
+                                    let old_solo = channel_state.solo;
                                     ui.checkbox(&mut channel_state.solo, "S"); // Solo
+                                    if channel_state.solo != old_solo {
+                                        if let Some(br) = &ui_state.audio_bridge {
+                                            match br.lock() {
+                                                Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::TrackSolo(i, channel_state.solo)); }
+                                                Err(e) => { eprintln!("Audio bridge lock failed for TrackSolo: {}", e); }
+                                            }
+                                        }
+                                    }
                                     ui.checkbox(&mut channel_state.arm, "A"); // Arm/Record
                                     ui.checkbox(&mut channel_state.phase, "P"); // Phase
                                 });
@@ -1680,7 +1859,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.label("📊 Real-time Spectrum Analyzer:");
                                     ui.allocate_response(egui::Vec2::new(80.0, 60.0), egui::Sense::hover());
     let spectrum_rect = ui.max_rect();
-                                    ui.painter().rect_filled(spectrum_rect, egui::Rounding::same(2.0), egui::Color32::from_rgb(10, 10, 20));
+                                    ui.painter().rect_filled(spectrum_rect, egui::CornerRadius::same(2_u8), egui::Color32::from_rgb(10, 10, 20));
 
                                     // Draw frequency grid lines
                                     for i in 0..10 {
@@ -1716,13 +1895,13 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                             let mut temp = true; ui.checkbox(&mut temp, "On");
                                             ui.label("Gain:");
                                             let mut low_gain = 2.0;
-                                            ui.add(egui::DragValue::new(&mut low_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                            ui.add(egui::DragValue::new(&mut low_gain).range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
                                             let mut low_freq = 80.0;
-                                            ui.add(egui::DragValue::new(&mut low_freq).clamp_range(20.0..=500.0).suffix(" Hz"));
+                                            ui.add(egui::DragValue::new(&mut low_freq).range(20.0..=500.0).suffix(" Hz"));
                                             ui.label("Slope:");
                                             let mut low_slope = 6.0;
-                                            ui.add(egui::DragValue::new(&mut low_slope).clamp_range(3.0..=24.0).suffix(" dB/oct"));
+                                            ui.add(egui::DragValue::new(&mut low_slope).range(3.0..=24.0).suffix(" dB/oct"));
                                         });
 
                                         ui.vertical(|ui| {
@@ -1730,13 +1909,13 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                             let mut temp = true; ui.checkbox(&mut temp, "On");
                                             ui.label("Gain:");
                                             let mut lm_gain = -3.0;
-                                            ui.add(egui::DragValue::new(&mut lm_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                            ui.add(egui::DragValue::new(&mut lm_gain).range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
                                             let mut lm_freq = 250.0;
-                                            ui.add(egui::DragValue::new(&mut lm_freq).clamp_range(100.0..=1000.0).suffix(" Hz"));
+                                            ui.add(egui::DragValue::new(&mut lm_freq).range(100.0..=1000.0).suffix(" Hz"));
                                             ui.label("Q:");
                                             let mut lm_q = 1.4;
-                                            ui.add(egui::DragValue::new(&mut lm_q).clamp_range(0.1..=10.0));
+                                            ui.add(egui::DragValue::new(&mut lm_q).range(0.1..=10.0));
                                         });
 
                                         ui.vertical(|ui| {
@@ -1744,13 +1923,13 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                             let mut temp = true; ui.checkbox(&mut temp, "On");
                                             ui.label("Gain:");
                                             let mut hm_gain = 1.5;
-                                            ui.add(egui::DragValue::new(&mut hm_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                            ui.add(egui::DragValue::new(&mut hm_gain).range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
                                             let mut hm_freq = 3000.0;
-                                            ui.add(egui::DragValue::new(&mut hm_freq).clamp_range(1000.0..=8000.0).suffix(" Hz"));
+                                            ui.add(egui::DragValue::new(&mut hm_freq).range(1000.0..=8000.0).suffix(" Hz"));
                                             ui.label("Q:");
                                             let mut hm_q = 2.0;
-                                            ui.add(egui::DragValue::new(&mut hm_q).clamp_range(0.1..=10.0));
+                                            ui.add(egui::DragValue::new(&mut hm_q).range(0.1..=10.0));
                                         });
 
                                         ui.vertical(|ui| {
@@ -1758,13 +1937,13 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                             let mut temp = true; ui.checkbox(&mut temp, "On");
                                             ui.label("Gain:");
                                             let mut high_gain = -1.0;
-                                            ui.add(egui::DragValue::new(&mut high_gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                            ui.add(egui::DragValue::new(&mut high_gain).range(-24.0..=24.0).suffix(" dB"));
                                             ui.label("Freq:");
                                             let mut high_freq = 12000.0;
-                                            ui.add(egui::DragValue::new(&mut high_freq).clamp_range(5000.0..=20000.0).suffix(" Hz"));
+                                            ui.add(egui::DragValue::new(&mut high_freq).range(5000.0..=20000.0).suffix(" Hz"));
                                             ui.label("Slope:");
                                             let mut high_slope = 6.0;
-                                            ui.add(egui::DragValue::new(&mut high_slope).clamp_range(3.0..=24.0).suffix(" dB/oct"));
+                                            ui.add(egui::DragValue::new(&mut high_slope).range(3.0..=24.0).suffix(" dB/oct"));
                                         });
                                     });
 
@@ -1772,7 +1951,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.label("📈 Frequency Response:");
                                     ui.allocate_response(egui::Vec2::new(80.0, 50.0), egui::Sense::hover());
     let response_rect = ui.max_rect();
-                                    ui.painter().rect_filled(response_rect, egui::Rounding::same(2.0), egui::Color32::from_rgb(15, 15, 30));
+                                    ui.painter().rect_filled(response_rect, egui::CornerRadius::same(2_u8), egui::Color32::from_rgb(15, 15, 30));
 
                                     // Draw frequency response curve
                                     let mut points = Vec::new();
@@ -1963,7 +2142,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                 // Return volume with metering
                                 ui.label("Volume:");
                                 let mut return_vol = 0.7;
-                                ui.add(egui::Slider::new(&mut return_vol, 0.0..=1.0).vertical().text("Vol"));
+                                if ui.add(egui::Slider::new(&mut return_vol, 0.0..=1.0).vertical().text("Vol")).changed() {
+                                    if let Some(br) = &ui_state.audio_bridge {
+                                        match br.lock() {
+                                            Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::ReturnVolume(i, return_vol)); }
+                                            Err(e) => { eprintln!("Audio bridge lock failed for ReturnVolume: {}", e); }
+                                        }
+                                    }
+                                }
                                 ui.horizontal(|ui| {
                                     ui.label("Peak:");
                                     ui.colored_label(egui::Color32::YELLOW, "-8dB");
@@ -1973,7 +2159,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                 ui.horizontal(|ui| {
                                     ui.label("Pan:");
                                     let mut return_pan = 0.0;
-                                    ui.add(egui::Slider::new(&mut return_pan, -1.0..=1.0));
+                                    if ui.add(egui::Slider::new(&mut return_pan, -1.0..=1.0)).changed() {
+                                        if let Some(br) = &ui_state.audio_bridge {
+                                            match br.lock() {
+                                                Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::ReturnPan(i, return_pan)); }
+                                                Err(e) => { eprintln!("Audio bridge lock failed for ReturnPan: {}", e); }
+                                            }
+                                        }
+                                    }
                                 });
 
                                 // Return controls
@@ -1989,7 +2182,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     // Mini spectrum analyzer for return
                                     ui.allocate_response(egui::Vec2::new(60.0, 30.0), egui::Sense::hover());
     let spectrum_rect = ui.max_rect();
-                                    ui.painter().rect_filled(spectrum_rect, egui::Rounding::same(2.0), egui::Color32::from_rgb(15, 15, 25));
+                                    ui.painter().rect_filled(spectrum_rect, egui::CornerRadius::same(2_u8), egui::Color32::from_rgb(15, 15, 25));
 
                                     // Draw spectrum bars
                                     for i in 0..60 {
@@ -2005,19 +2198,19 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                                     ui.horizontal(|ui| {
                                         ui.label("Low:");
                                         let mut low = 2.0;
-                                        ui.add(egui::DragValue::new(&mut low).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                        ui.add(egui::DragValue::new(&mut low).range(-24.0..=24.0).suffix(" dB"));
                                         ui.label("Freq:");
                                         let mut low_freq = 200.0;
-                                        ui.add(egui::DragValue::new(&mut low_freq).clamp_range(20.0..=1000.0).suffix(" Hz"));
+                                        ui.add(egui::DragValue::new(&mut low_freq).range(20.0..=1000.0).suffix(" Hz"));
                                     });
 
                                     ui.horizontal(|ui| {
                                         ui.label("High:");
                                         let mut high = -1.5;
-                                        ui.add(egui::DragValue::new(&mut high).clamp_range(-24.0..=24.0).suffix(" dB"));
+                                        ui.add(egui::DragValue::new(&mut high).range(-24.0..=24.0).suffix(" dB"));
                                         ui.label("Freq:");
                                         let mut high_freq = 5000.0;
-                                        ui.add(egui::DragValue::new(&mut high_freq).clamp_range(1000.0..=20000.0).suffix(" Hz"));
+                                        ui.add(egui::DragValue::new(&mut high_freq).range(1000.0..=20000.0).suffix(" Hz"));
                                     });
                                 });
 
@@ -2110,7 +2303,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                             if source != dest {
                                 ui.vertical(|ui| {
                                     let mut route_level = if source < dest && source < 4 { 0.5 } else { 0.0 };
-                                    ui.add(egui::DragValue::new(&mut route_level).clamp_range(0.0..=1.0).speed(0.01));
+                                    ui.add(egui::DragValue::new(&mut route_level).range(0.0..=1.0).speed(0.01));
                                     let mut temp = false; ui.checkbox(&mut temp, "Pre");
                                 });
                             } else {
@@ -2118,17 +2311,22 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                             }
                         }
                         ui.end_row();
-                    }
-                });
+                        }
+                    });
 
-                ui.separator();
-                ui.label("🎛️ Routing Presets:");
-                ui.horizontal(|ui| {
-                    if ui.button("📥 Load Preset").clicked() { println!("Load routing preset"); }
-                    if ui.button("💾 Save Preset").clicked() { println!("Save routing preset"); }
-                    if ui.button("🔄 Reset Matrix").clicked() { println!("Reset routing matrix"); }
+                    ui.separator();
+                    ui.label("🎛️ Routing Presets:");
+                    ui.horizontal(|ui| {
+                        if ui.button("📥 Load Preset").clicked() { println!("Load routing preset"); }
+                        if ui.button("💾 Save Preset").clicked() { println!("Save routing preset"); }
+                        if ui.button("🔄 Reset Matrix").clicked() { println!("Reset routing matrix"); }
+                    });
                 });
-            });
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("🎚️ Mixer is in Buses Only mode: regular tracks hidden");
+                });
+            }
 
             // Mixer performance indicators
             ui.separator();
@@ -2152,17 +2350,84 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
         });
     }
 
+    // Audio Engine Monitor panel (collapsible, above transport)
+    if ui_state.show_audio_monitor {
+        egui::TopBottomPanel::bottom("audio_engine_monitor").show(ctx, |ui| {
+            ui.collapsing("🖥️ Audio Engine Monitor", |ui| {
+                ui.horizontal(|ui| {
+                    let mut status_text = "Stopped".to_string();
+                    let mut bpm_text = "BPM: —".to_string();
+                    let mut time_text = "00:00:00.000".to_string();
+                    if let Some(br) = &ui_state.audio_bridge {
+                        if let Ok(bridge) = br.lock() {
+                            if let Some(state) = bridge.get_audio_state(50) {
+                                status_text = if state.playing { "Playing".to_string() } else { "Stopped".to_string() };
+                                bpm_text = format!("BPM: {:.1}", state.bpm);
+                                let secs = state.time_position.max(0.0);
+                                let total_ms = (secs * 1000.0) as u64;
+                                let ms = total_ms % 1000;
+                                let total_sec = total_ms / 1000;
+                                let s = total_sec % 60;
+                                let total_min = total_sec / 60;
+                                let m = total_min % 60;
+                                let h = total_min / 60;
+                                time_text = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
+                            }
+                        }
+                    }
+                    ui.label(format!("Status: {}", status_text));
+                    ui.separator();
+                    ui.label(bpm_text);
+                    ui.separator();
+                    ui.label(format!("Time: {}", time_text));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Monitoring:");
+                    let changed = ui.checkbox(&mut ui_state.input_monitoring_enabled, "Enable Input").changed();
+                    if changed {
+                        if let Some(br) = &ui_state.audio_bridge {
+                            let _ = br.lock().unwrap().send_param(AudioParamMessage::SetInputMonitoring(ui_state.input_monitoring_enabled));
+                        }
+                    }
+                    ui.add(egui::Slider::new(&mut ui_state.input_gain, 0.0..=1.0).text("Gain"));
+                    ui.add(egui::Slider::new(&mut ui_state.input_monitor_level, 0.0..=1.0).text("Mon"));
+                });
+            });
+        });
+    }
+
     // Transport panel with complete functionality
     if ui_state.show_transport {
         egui::TopBottomPanel::bottom("transport").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Time display
+                // Time/status display (wired to audio engine state)
                 ui.vertical(|ui| {
-                    ui.set_min_width(120.0);
-                    ui.label("⏰ Time Position");
-                    ui.label("00:00:00.000");
-                    ui.label("Bar 1 Beat 1");
-                    ui.label("4/4");
+                    ui.set_min_width(160.0);
+                    let mut status_text = "Stopped".to_string();
+                    let mut bpm_text = "BPM: —".to_string();
+                    let mut time_text = "00:00:00.000".to_string();
+                    if let Some(br) = &ui_state.audio_bridge {
+                        if let Ok(bridge) = br.lock() {
+                            if let Some(state) = bridge.get_audio_state(50) {
+                                status_text = if state.playing { "Playing".to_string() } else { "Stopped".to_string() };
+                                bpm_text = format!("BPM: {:.1}", state.bpm);
+                                let secs = state.time_position.max(0.0);
+                                let total_ms = (secs * 1000.0) as u64;
+                                let ms = total_ms % 1000;
+                                let total_sec = total_ms / 1000;
+                                let s = total_sec % 60;
+                                let total_min = total_sec / 60;
+                                let m = total_min % 60;
+                                let h = total_min / 60;
+                                time_text = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
+                            }
+                        }
+                    }
+                    ui.label("⏰ Transport");
+                    ui.label(time_text);
+                    ui.label(status_text);
+                    ui.label(bpm_text);
                 });
 
                 ui.separator();
@@ -2171,23 +2436,72 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                 ui.vertical(|ui| {
                     ui.label("🎮 Transport");
                     ui.horizontal(|ui| {
-                        if ui.button("⏮").clicked() { println!("Rewind"); }
-                        if ui.button("⏯").clicked() { println!("Play/Pause"); }
-                        if ui.button("⏹").clicked() { println!("Stop"); }
-                        if ui.button("⏭").clicked() { println!("Forward"); }
-                        if ui.button("●").clicked() { println!("Record"); }
+                        if ui.button("⏮").clicked() {
+                            // TODO: implement rewind behavior in engine
+                        }
+                        if ui.button("⏯").clicked() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                match br.lock() {
+                                    Ok(bridge) => {
+                                        let playing = bridge
+                                            .get_audio_state(25)
+                                            .map(|s| s.playing)
+                                            .unwrap_or(false);
+                                        let msg = if playing {
+                                            AudioParamMessage::Pause
+                                        } else {
+                                            AudioParamMessage::Play
+                                        };
+                                        let _ = bridge.send_param(msg);
+                                    }
+                                    Err(e) => { eprintln!("Audio bridge lock failed for Play: {}", e); }
+                                }
+                            }
+                        }
+                        if ui.button("⏹").clicked() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                match br.lock() {
+                                    Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::Stop); }
+                                    Err(e) => { eprintln!("Audio bridge lock failed for Stop: {}", e); }
+                                }
+                            }
+                        }
+                        if ui.button("⏭").clicked() {
+                            // TODO: implement forward/skip behavior in engine
+                        }
+                        if ui.button("●").clicked() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                match br.lock() {
+                                    Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::Record); }
+                                    Err(e) => { eprintln!("Audio bridge lock failed for Record: {}", e); }
+                                }
+                            }
+                        }
                     });
 
-                    // Loop controls
+                    // Loop controls (persisted in UiState)
                     ui.horizontal(|ui| {
-                        let mut loop_enabled = false;
-                        ui.checkbox(&mut loop_enabled, "🔁 Loop");
+                        let loop_changed = ui.checkbox(&mut ui_state.loop_enabled, "🔁 Loop").changed();
                         ui.label("Start:");
-                        let mut loop_start = 0.0;
-                        ui.add(egui::DragValue::new(&mut loop_start).clamp_range(0.0..=1000.0));
+                        let resp_start = ui.add(egui::DragValue::new(&mut ui_state.loop_start_beats).range(0.0..=1000.0));
                         ui.label("End:");
-                        let mut loop_end = 4.0;
-                        ui.add(egui::DragValue::new(&mut loop_end).clamp_range(0.0..=1000.0));
+                        let resp_end = ui.add(egui::DragValue::new(&mut ui_state.loop_end_beats).range(0.0..=1000.0));
+
+                        // Send loop settings to engine when edited
+                        if loop_changed || resp_start.changed() || resp_end.changed() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                match br.lock() {
+                                    Ok(bridge) => {
+                                        let _ = bridge.send_param(AudioParamMessage::SetLoop(
+                                            ui_state.loop_enabled,
+                                            ui_state.loop_start_beats,
+                                            ui_state.loop_end_beats,
+                                        ));
+                                    }
+                                    Err(e) => { eprintln!("Audio bridge lock failed for SetLoop: {}", e); }
+                                }
+                            }
+                        }
                     });
                 });
 
@@ -2199,7 +2513,14 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     ui.horizontal(|ui| {
                         ui.label("BPM:");
                         let mut bpm = 128.0;
-                        ui.add(egui::DragValue::new(&mut bpm).clamp_range(60.0..=200.0));
+                        if ui.add(egui::DragValue::new(&mut bpm).range(60.0..=200.0).suffix(" BPM")).changed() {
+                            if let Some(br) = &ui_state.audio_bridge {
+                                match br.lock() {
+                                    Ok(bridge) => { let _ = bridge.send_param(AudioParamMessage::SetTempo(bpm)); }
+                                    Err(e) => { eprintln!("Audio bridge lock failed for SetTempo: {}", e); }
+                                }
+                            }
+                        }
                     });
 
                     ui.horizontal(|ui| {
@@ -2247,7 +2568,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                     ui.horizontal(|ui| {
                         ui.label("Pre-Roll:");
                         let mut preroll = 1.0;
-                        ui.add(egui::DragValue::new(&mut preroll).clamp_range(0.0..=4.0).suffix(" bars"));
+                        ui.add(egui::DragValue::new(&mut preroll).range(0.0..=4.0).suffix(" bars"));
                     });
                 });
             });
@@ -2258,7 +2579,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
     egui::CentralPanel::default().show(ctx, |ui| {
         match ui_state.current_view {
             UIViewMode::Arrangement => draw_arrangement_view(ui, arrangement_state),
-            UIViewMode::Live => draw_live_view(ui, live_state),
+        UIViewMode::Live => draw_live_view(ui, ui_state, live_state),
             UIViewMode::Node => draw_node_view(ui, node_state),
         }
     });
@@ -2472,7 +2793,7 @@ pub fn ui_system(ctx: &egui::Context, ui_state: &mut UiState, arrangement_state:
                         };
                         
                         painter.rect_filled(key_rect, 2.0, color);
-                        painter.rect_stroke(key_rect, 2.0, egui::Stroke::new(1.0, egui::Color32::GRAY));
+                        painter.rect_stroke(key_rect, egui::CornerRadius::same(2_u8), egui::Stroke::new(1.0, egui::Color32::GRAY), egui::StrokeKind::Outside);
                     }
                     
                     // Draw grid lines
@@ -2768,7 +3089,13 @@ fn apply_theme(ctx: &egui::Context, ui_state: &UiState) {
     let mut style = (*ctx.style()).clone();
     style.visuals = visuals;
     ctx.set_style(style);
-    ctx.set_pixels_per_point(ui_state.font_scale);
+
+    // Clamp global scaling to prevent extreme zoom causing unusable UI
+    let mut scale = ui_state.font_scale;
+    if !scale.is_finite() || scale < 0.5 || scale > 2.5 {
+        scale = 1.0;
+    }
+    ctx.set_pixels_per_point(scale);
 }
 
 /// Draw Arrangement View - Full Implementation
@@ -2799,7 +3126,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
         // Timeline position and zoom
         ui.label("🕐");
         ui.add(egui::DragValue::new(&mut state.timeline_position)
-            .clamp_range(0.0..=999.0)
+            .range(0.0..=999.0)
             .speed(0.25)
             .prefix("Bar: ")
             .suffix(".1"));
@@ -3016,7 +3343,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Vec2::new(75.0, 50.0)
                         );
                         ui.painter().rect_filled(clip_rect, 4.0, visuals.widgets.inactive.bg_fill);
-                        ui.painter().rect_stroke(clip_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
+                        ui.painter().rect_stroke(clip_rect, egui::CornerRadius::same(4_u8), egui::Stroke::new(2.0, visuals.selection.stroke.color), egui::StrokeKind::Outside);
                         ui.painter().text(
                             clip_rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -3045,7 +3372,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Vec2::new(75.0, 50.0)
                         );
                         ui.painter().rect_filled(snare_rect, 4.0, visuals.widgets.inactive.bg_fill);
-                        ui.painter().rect_stroke(snare_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
+                        ui.painter().rect_stroke(snare_rect, egui::CornerRadius::same(4_u8), egui::Stroke::new(2.0, visuals.selection.stroke.color), egui::StrokeKind::Outside);
                         ui.painter().text(
                             snare_rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -3062,7 +3389,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Vec2::new(200.0, 50.0)
                         );
                         ui.painter().rect_filled(bass_rect, 4.0, visuals.widgets.inactive.bg_fill);
-                        ui.painter().rect_stroke(bass_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
+                        ui.painter().rect_stroke(bass_rect, egui::CornerRadius::same(4_u8), egui::Stroke::new(2.0, visuals.selection.stroke.color), egui::StrokeKind::Outside);
                         ui.painter().text(
                             bass_rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -3085,7 +3412,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                             egui::Vec2::new(150.0, 50.0)
                         );
                         ui.painter().rect_filled(midi_rect, 4.0, visuals.widgets.inactive.bg_fill);
-                        ui.painter().rect_stroke(midi_rect, egui::Rounding::same(4.0), egui::Stroke::new(2.0, visuals.selection.stroke.color));
+                        ui.painter().rect_stroke(midi_rect, egui::CornerRadius::same(4_u8), egui::Stroke::new(2.0, visuals.selection.stroke.color), egui::StrokeKind::Outside);
                         ui.painter().text(
                             midi_rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -3203,7 +3530,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                     if source != dest {
                         ui.vertical(|ui| {
                             let mut send_level = 0.0;
-                            ui.add(egui::DragValue::new(&mut send_level).clamp_range(0.0..=1.0).speed(0.01));
+                            ui.add(egui::DragValue::new(&mut send_level).range(0.0..=1.0).speed(0.01));
                             let mut temp = false; ui.checkbox(&mut temp, "Pre");
                         });
                     } else {
@@ -3238,7 +3565,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
                 for to_track in 0..8 {
                     if from_track != to_track {
                         let mut send_level = 0.0;
-                        ui.add(egui::DragValue::new(&mut send_level).clamp_range(0.0..=1.0).speed(0.01));
+                        ui.add(egui::DragValue::new(&mut send_level).range(0.0..=1.0).speed(0.01));
                     } else {
                         ui.label("-");
                     }
@@ -3251,7 +3578,7 @@ fn draw_arrangement_view(ui: &mut egui::Ui, state: &mut ArrangementViewState) {
 
 /// Draw Live View - Full Implementation
 /// Uses Bevy 0.17 render graph integration
-fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
+fn draw_live_view(ui: &mut egui::Ui, ui_state: &mut UiState, state: &mut LiveViewState) {
     ui.heading("🎧 Live Performance View - CDJ-Inspired DJ Interface");
 
     // DJ Controls Header with enhanced features
@@ -3267,12 +3594,22 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
             println!("Loop mode toggled");
         }
         if ui.button("⏯️ Play/Pause").clicked() {
-            println!("Global play/pause toggled");
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::Play);
+                }
+            }
         }
         ui.separator();
         ui.label("BPM:");
         let mut bpm = 128.0;
-        ui.add(egui::DragValue::new(&mut bpm).clamp_range(60.0..=200.0).suffix(" BPM"));
+        if ui.add(egui::DragValue::new(&mut bpm).range(60.0..=200.0).suffix(" BPM")).changed() {
+            if let Some(br) = &ui_state.audio_bridge {
+                if let Ok(bridge) = br.lock() {
+                    let _ = bridge.send_param(AudioParamMessage::SetTempo(bpm));
+                }
+            }
+        }
         ui.separator();
         ui.label("Sync:");
         let mut temp = true; ui.checkbox(&mut temp, "Beat Sync");
@@ -3302,12 +3639,12 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
                 }
                 ui.separator();
                 ui.label("BPM:");
-                ui.add(egui::DragValue::new(&mut state.deck_a_volume).clamp_range(60.0..=200.0));
+                ui.add(egui::DragValue::new(&mut state.deck_a_volume).range(60.0..=200.0));
             });
 
             // Waveform display placeholder
             let (resp, painter) = ui.allocate_painter(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
-            painter.rect_filled(resp.rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
+            painter.rect_filled(resp.rect, egui::CornerRadius::same(4_u8), egui::Color32::from_rgb(30, 30, 50));
             painter.text(
                 resp.rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -3420,12 +3757,12 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
                 ui.separator();
                 ui.label("BPM:");
                 let mut bpm_b = 128.0;
-                ui.add(egui::DragValue::new(&mut bpm_b).clamp_range(60.0..=200.0));
+                ui.add(egui::DragValue::new(&mut bpm_b).range(60.0..=200.0));
             });
 
             // Waveform display placeholder
             let (resp, painter) = ui.allocate_painter(egui::Vec2::new(200.0, 60.0), egui::Sense::hover());
-            painter.rect_filled(resp.rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(30, 30, 50));
+            painter.rect_filled(resp.rect, egui::CornerRadius::same(4_u8), egui::Color32::from_rgb(30, 30, 50));
             painter.text(
                 resp.rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -3498,6 +3835,44 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
     });
 
     ui.separator();
+
+    // Track Info sections below decks
+    ui.heading("🎚️ Track Info");
+    ui.horizontal(|ui| {
+        // Deck A Info
+        ui.vertical(|ui| {
+            ui.set_min_width(220.0);
+            ui.heading("Deck A Info");
+            ui.label("Level and Tone:");
+            ui.horizontal(|ui| {
+                ui.label("Vol:");
+                ui.add(egui::Slider::new(&mut state.deck_a_volume, 0.0..=1.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Filter:");
+                ui.add(egui::Slider::new(&mut state.deck_a_filter, 0.0..=1.0));
+            });
+            let active_a = state.active_clips.iter().filter(|&&i| i < 4).count();
+            ui.label(format!("Active Clips: {}", active_a));
+        });
+
+        // Deck B Info
+        ui.vertical(|ui| {
+            ui.set_min_width(220.0);
+            ui.heading("Deck B Info");
+            ui.label("Level and Tone:");
+            ui.horizontal(|ui| {
+                ui.label("Vol:");
+                ui.add(egui::Slider::new(&mut state.deck_b_volume, 0.0..=1.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Filter:");
+                ui.add(egui::Slider::new(&mut state.deck_b_filter, 0.0..=1.0));
+            });
+            let active_b = state.active_clips.iter().filter(|&&i| i >= 4 && i < 8).count();
+            ui.label(format!("Active Clips: {}", active_b));
+        });
+    });
 
     // Enhanced Mega Plugin Section - Bitwig/Ableton style nested plugins with cookbook techniques
     ui.heading("🔗 Mega Plugins - Chain Effects Together (Modular Cookbook Inspired)");
@@ -3579,7 +3954,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
         ui.horizontal(|ui| {
             ui.label("Grain Size:");
             let mut grain_size = 50.0;
-            ui.add(egui::DragValue::new(&mut grain_size).clamp_range(10.0..=500.0).suffix(" ms"));
+            ui.add(egui::DragValue::new(&mut grain_size).range(10.0..=500.0).suffix(" ms"));
 
             ui.label("Grain Density:");
             let mut grain_density = 0.8;
@@ -3587,7 +3962,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
 
             ui.label("Pitch Shift:");
             let mut pitch_shift = 0.0;
-            ui.add(egui::DragValue::new(&mut pitch_shift).clamp_range(-12.0..=12.0).suffix(" semitones"));
+            ui.add(egui::DragValue::new(&mut pitch_shift).range(-12.0..=12.0).suffix(" semitones"));
         });
 
         ui.label("Convolution with impulse responses:");
@@ -3613,7 +3988,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
         ui.horizontal(|ui| {
             ui.label("FFT Size:");
             let mut fft_size = 2048.0;
-            ui.add(egui::DragValue::new(&mut fft_size).clamp_range(256.0..=8192.0));
+            ui.add(egui::DragValue::new(&mut fft_size).range(256.0..=8192.0));
 
             ui.label("Overlap:");
             let mut overlap = 0.75;
@@ -3621,7 +3996,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
 
             ui.label("Spectral Tilt:");
             let mut tilt = 0.0;
-            ui.add(egui::DragValue::new(&mut tilt).clamp_range(-24.0..=24.0).suffix(" dB"));
+            ui.add(egui::DragValue::new(&mut tilt).range(-24.0..=24.0).suffix(" dB"));
         });
 
         ui.label("Spectral filtering bands:");
@@ -3629,11 +4004,11 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
             ui.horizontal(|ui| {
                 ui.label(format!("Band {}:", i + 1));
                 let mut freq = 100.0 * (2.0_f32).powi(i);
-                ui.add(egui::DragValue::new(&mut freq).clamp_range(20.0..=20000.0).suffix(" Hz"));
+                ui.add(egui::DragValue::new(&mut freq).range(20.0..=20000.0).suffix(" Hz"));
                 let mut gain = 0.0;
-                ui.add(egui::DragValue::new(&mut gain).clamp_range(-24.0..=24.0).suffix(" dB"));
+                ui.add(egui::DragValue::new(&mut gain).range(-24.0..=24.0).suffix(" dB"));
                 let mut q = 1.0;
-                ui.add(egui::DragValue::new(&mut q).clamp_range(0.1..=10.0));
+                ui.add(egui::DragValue::new(&mut q).range(0.1..=10.0));
             });
         }
 
@@ -3665,7 +4040,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
         ui.horizontal(|ui| {
             ui.label("Waveguide Length:");
             let mut wg_length = 100.0;
-            ui.add(egui::DragValue::new(&mut wg_length).clamp_range(10.0..=1000.0).suffix(" samples"));
+            ui.add(egui::DragValue::new(&mut wg_length).range(10.0..=1000.0).suffix(" samples"));
 
             ui.label("Reflection:");
             let mut reflection = 0.9;
@@ -3700,15 +4075,15 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
         ui.horizontal(|ui| {
             ui.label("Low:");
             let mut low_boost = 3.0;
-            ui.add(egui::DragValue::new(&mut low_boost).clamp_range(-24.0..=24.0).suffix(" dB"));
+            ui.add(egui::DragValue::new(&mut low_boost).range(-24.0..=24.0).suffix(" dB"));
 
             ui.label("Mid:");
             let mut mid_cut = -6.0;
-            ui.add(egui::DragValue::new(&mut mid_cut).clamp_range(-24.0..=24.0).suffix(" dB"));
+            ui.add(egui::DragValue::new(&mut mid_cut).range(-24.0..=24.0).suffix(" dB"));
 
             ui.label("High:");
             let mut high_boost = 6.0;
-            ui.add(egui::DragValue::new(&mut high_boost).clamp_range(-24.0..=24.0).suffix(" dB"));
+            ui.add(egui::DragValue::new(&mut high_boost).range(-24.0..=24.0).suffix(" dB"));
         });
 
         let mut pwm_clipping = true;
@@ -3777,7 +4152,7 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
                         for target in 0..5 {
                             let amount = if source == target { 0.5 } else { 0.0 };
                             let mut amount_val = amount;
-                            ui.add(egui::DragValue::new(&mut amount_val).clamp_range(-1.0..=1.0).speed(0.01));
+                            ui.add(egui::DragValue::new(&mut amount_val).range(-1.0..=1.0).speed(0.01));
                         }
                     });
                 }
@@ -3805,11 +4180,11 @@ fn draw_live_view(ui: &mut egui::Ui, state: &mut LiveViewState) {
 
             ui.label("Ratio:");
             let mut ratio = 4.0;
-            ui.add(egui::DragValue::new(&mut ratio).clamp_range(1.0..=20.0));
+            ui.add(egui::DragValue::new(&mut ratio).range(1.0..=20.0));
 
             ui.label("Attack:");
             let mut attack = 0.01;
-            ui.add(egui::DragValue::new(&mut attack).clamp_range(0.001..=0.1));
+            ui.add(egui::DragValue::new(&mut attack).range(0.001..=0.1));
         });
     });
 
@@ -3833,9 +4208,20 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut state.show_parameters, "Show Parameters");
         ui.checkbox(&mut state.grid_snap, "Grid Snap");
+        ui.checkbox(&mut state.hex.lock_nodes, "Lock Nodes");
         ui.checkbox(&mut state.visual_feedback.show_audio_levels, "Audio Levels");
         ui.checkbox(&mut state.visual_feedback.show_modulation, "Modulation");
         ui.checkbox(&mut state.visual_feedback.show_cpu_usage, "CPU Usage");
+
+        ui.separator();
+        // Shape controls for the desktop hex canvas
+        let mut layout_changed = false;
+        layout_changed |= ui.add(egui::Slider::new(&mut state.hex.sides, 3..=12).text("Sides")).changed();
+        layout_changed |= ui.checkbox(&mut state.hex.ports_on_vertices, "Ports on vertices").changed();
+        layout_changed |= ui.checkbox(&mut state.hex.show_debug_overlay, "Debug overlay").changed();
+        if layout_changed {
+            state.hex.apply_layout_settings();
+        }
 
         ui.separator();
 
@@ -3927,6 +4313,11 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
 
         ui.separator();
         if ui.button("🗑️ Clear Canvas").clicked() {
+            // Clear hex canvas state
+            state.hex.nodes.clear();
+            state.hex.connections.clear();
+            state.hex.next_node_id = 0;
+            // Maintain legacy state clears to avoid stale visuals
             state.node_positions.clear();
             state.connections.clear();
         }
@@ -3934,8 +4325,8 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
 
     ui.separator();
 
-    // Node Canvas with enhanced visuals
-    let (rect, response) = ui.allocate_at_least(
+    // Node Canvas area
+    let (rect, _response) = ui.allocate_at_least(
         egui::Vec2::new(ui.available_width(), ui.available_height() - 100.0),
         egui::Sense::click_and_drag()
     );
@@ -3964,172 +4355,8 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
         }
     }
 
-    // Draw connections first (behind nodes)
-    for connection in &state.connections {
-        if let (Some(from_node), Some(to_node)) = (
-            state.node_positions.iter().find(|n| n.id == connection.from_node),
-            state.node_positions.iter().find(|n| n.id == connection.to_node)
-        ) {
-            let start_pos = egui::Pos2::new(
-                rect.left() + from_node.x + 140.0, // Right side of node
-                rect.top() + from_node.y + 50.0
-            );
-            let end_pos = egui::Pos2::new(
-                rect.left() + to_node.x, // Left side of node
-                rect.top() + to_node.y + 50.0
-            );
-
-            // Draw curved connection with glow effect
-            let control_point1 = egui::Pos2::new(start_pos.x + 30.0, start_pos.y);
-            let control_point2 = egui::Pos2::new(end_pos.x - 30.0, end_pos.y);
-
-            // Draw multiple segments for bezier curve
-            let steps = 20;
-            let mut points = Vec::new();
-            for i in 0..=steps {
-                let t = i as f32 / steps as f32;
-                let x = (1.0 - t).powi(3) * start_pos.x +
-                        3.0 * (1.0 - t).powi(2) * t * control_point1.x +
-                        3.0 * (1.0 - t) * t.powi(2) * control_point2.x +
-                        t.powi(3) * end_pos.x;
-                let y = (1.0 - t).powi(3) * start_pos.y +
-                        3.0 * (1.0 - t).powi(2) * t * control_point1.y +
-                        3.0 * (1.0 - t) * t.powi(2) * control_point2.y +
-                        t.powi(3) * end_pos.y;
-                points.push(egui::Pos2::new(x, y));
-            }
-
-            // Draw glow effect
-            for i in 0..points.len().saturating_sub(1) {
-                ui.painter().line_segment(
-                    [points[i], points[i + 1]],
-                    egui::Stroke::new(8.0, egui::Color32::from_rgba_premultiplied(100, 100, 150, 50))
-                );
-            }
-
-            // Draw main connection line
-            for i in 0..points.len().saturating_sub(1) {
-                ui.painter().line_segment(
-                    [points[i], points[i + 1]],
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(150, 150, 200))
-                );
-            }
-        }
-    }
-
-    // Draw nodes with enhanced visuals and parameters
-    for node in &mut state.node_positions {
-        let node_rect = egui::Rect::from_min_size(
-            egui::Pos2::new(rect.left() + node.x, rect.top() + node.y),
-            egui::Vec2::new(140.0, if state.show_parameters && node.selected { 120.0 } else { 100.0 })
-        );
-
-        // Node background with type-based colors
-        let bg_color = match node.node_type.split('.').next().unwrap_or("unknown") {
-            "generator" => egui::Color32::from_rgb(80, 120, 160),
-            "filter" => egui::Color32::from_rgb(120, 80, 160),
-            "effect" => egui::Color32::from_rgb(160, 120, 80),
-            "modulator" => egui::Color32::from_rgb(80, 160, 120),
-            "utility" => egui::Color32::from_rgb(160, 80, 120),
-            _ => egui::Color32::from_rgb(96, 96, 96),
-        };
-
-        ui.painter().rect_filled(node_rect, egui::Rounding::same(6.0), bg_color);
-
-        // Selection highlight
-        if node.selected {
-            ui.painter().rect_stroke(node_rect, egui::Rounding::same(6.0),
-                egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 255, 100)));
-        }
-
-        // Node border with glow
-        ui.painter().rect_stroke(node_rect, egui::Rounding::same(6.0),
-            egui::Stroke::new(2.0, egui::Color32::WHITE));
-
-        // Node title
-        ui.painter().text(
-            egui::Pos2::new(node_rect.left() + 12.0, node_rect.top() + 8.0),
-            egui::Align2::LEFT_TOP,
-            &node.id,
-            egui::FontId::proportional(14.0),
-            egui::Color32::WHITE
-        );
-
-        // Input/Output ports with labels
-        let port_radius = 8.0;
-
-        // Input port (left side)
-        let input_pos = egui::Pos2::new(node_rect.left(), node_rect.center().y);
-        ui.painter().circle_filled(input_pos, port_radius, egui::Color32::from_rgb(100, 200, 100));
-        ui.painter().circle_stroke(input_pos, port_radius, egui::Stroke::new(2.0, egui::Color32::WHITE));
-
-        // Output port (right side)
-        let output_pos = egui::Pos2::new(node_rect.right(), node_rect.center().y);
-        ui.painter().circle_filled(output_pos, port_radius, egui::Color32::from_rgb(200, 100, 100));
-        ui.painter().circle_stroke(output_pos, port_radius, egui::Stroke::new(2.0, egui::Color32::WHITE));
-
-        // Port labels
-        ui.painter().text(
-            egui::Pos2::new(node_rect.left() + 15.0, node_rect.center().y - 12.0),
-            egui::Align2::LEFT_CENTER,
-            "IN",
-            egui::FontId::proportional(10.0),
-            egui::Color32::from_rgb(180, 180, 180)
-        );
-        ui.painter().text(
-            egui::Pos2::new(node_rect.right() - 15.0, node_rect.center().y - 12.0),
-            egui::Align2::RIGHT_CENTER,
-            "OUT",
-            egui::FontId::proportional(10.0),
-            egui::Color32::from_rgb(180, 180, 180)
-        );
-
-        // Node parameters (if selected and show_parameters enabled)
-        if state.show_parameters && node.selected {
-            ui.painter().text(
-                egui::Pos2::new(node_rect.left() + 12.0, node_rect.top() + 30.0),
-                egui::Align2::LEFT_TOP,
-                "Parameters:",
-                egui::FontId::proportional(10.0),
-                egui::Color32::from_rgb(220, 220, 220)
-            );
-
-            for (i, param) in node.parameters.iter().enumerate() {
-                ui.painter().text(
-                    egui::Pos2::new(node_rect.left() + 12.0, node_rect.top() + 45.0 + (i as f32 * 15.0)),
-                    egui::Align2::LEFT_TOP,
-                    &format!("{}: {:.2}", param.name, param.value),
-                    egui::FontId::proportional(9.0),
-                    if param.modulated { egui::Color32::from_rgb(255, 200, 100) } else { egui::Color32::from_rgb(200, 200, 200) }
-                );
-            }
-        }
-
-        // Visual feedback overlays
-        if state.visual_feedback.show_audio_levels {
-            // Audio level indicator (placeholder animation)
-            let level = (ui.input(|i| i.time as f32 * 2.0).sin() * 0.5 + 0.5) * 20.0;
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(
-                    egui::Pos2::new(node_rect.right() - 10.0, node_rect.bottom() - level - 5.0),
-                    egui::Vec2::new(5.0, level)
-                ),
-                1.0,
-                egui::Color32::from_rgb(100, 255, 100)
-            );
-        }
-
-        if state.visual_feedback.show_cpu_usage && node.selected {
-            // CPU usage indicator
-            ui.painter().text(
-                egui::Pos2::new(node_rect.right() - 40.0, node_rect.top() + 8.0),
-                egui::Align2::RIGHT_TOP,
-                "CPU: 15%",
-                egui::FontId::proportional(10.0),
-                egui::Color32::from_rgb(255, 150, 150)
-            );
-        }
-    }
+    // Delegate drawing and interactions to hex canvas
+    state.hex.draw(ui, rect);
 
     // Instructions and examples
     ui.separator();
@@ -4239,7 +4466,7 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
             // Visual chain representation
             ui.allocate_response(egui::Vec2::new(80.0, 30.0), egui::Sense::hover());
             let chain_rect = ui.max_rect();
-            ui.painter().rect_filled(chain_rect, egui::Rounding::same(4.0), egui::Color32::from_rgb(20, 20, 40));
+            ui.painter().rect_filled(chain_rect, egui::CornerRadius::same(4_u8), egui::Color32::from_rgb(20, 20, 40));
 
             // Draw chain connections
             for i in 0..5 {
@@ -4267,16 +4494,16 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
                     ui.checkbox(&mut compressor_on, "On");
                     ui.label("Ratio:");
                     let mut ratio = 4.0;
-                    ui.add(egui::DragValue::new(&mut ratio).clamp_range(1.0..=20.0));
+                    ui.add(egui::DragValue::new(&mut ratio).range(1.0..=20.0));
                     ui.label("Threshold:");
                     let mut threshold = -18.0;
-                    ui.add(egui::DragValue::new(&mut threshold).clamp_range(-40.0..=0.0).suffix(" dB"));
+                    ui.add(egui::DragValue::new(&mut threshold).range(-40.0..=0.0).suffix(" dB"));
                     ui.label("Attack:");
                     let mut attack = 5.0;
-                    ui.add(egui::DragValue::new(&mut attack).clamp_range(0.1..=100.0).suffix(" ms"));
+                    ui.add(egui::DragValue::new(&mut attack).range(0.1..=100.0).suffix(" ms"));
                     ui.label("Release:");
                     let mut release = 100.0;
-                    ui.add(egui::DragValue::new(&mut release).clamp_range(10.0..=1000.0).suffix(" ms"));
+                    ui.add(egui::DragValue::new(&mut release).range(10.0..=1000.0).suffix(" ms"));
                 });
                 let mut auto_makeup = false;
                 ui.checkbox(&mut auto_makeup, "Auto Makeup Gain");
@@ -4290,10 +4517,10 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
                     ui.checkbox(&mut eq_on, "On");
                     ui.label("Low:");
                     let mut low = 1.0;
-                    ui.add(egui::DragValue::new(&mut low).clamp_range(-24.0..=24.0).suffix(" dB"));
+                    ui.add(egui::DragValue::new(&mut low).range(-24.0..=24.0).suffix(" dB"));
                     ui.label("High:");
                     let mut high = -1.5;
-                    ui.add(egui::DragValue::new(&mut high).clamp_range(-24.0..=24.0).suffix(" dB"));
+                    ui.add(egui::DragValue::new(&mut high).range(-24.0..=24.0).suffix(" dB"));
                 });
             });
 
@@ -4319,10 +4546,10 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
                     ui.checkbox(&mut limiter_on, "On");
                     ui.label("Ceiling:");
                     let mut ceiling = -0.1;
-                    ui.add(egui::DragValue::new(&mut ceiling).clamp_range(-20.0..=0.0).suffix(" dB"));
+                    ui.add(egui::DragValue::new(&mut ceiling).range(-20.0..=0.0).suffix(" dB"));
                     ui.label("Release:");
                     let mut release = 50.0;
-                    ui.add(egui::DragValue::new(&mut release).clamp_range(1.0..=500.0).suffix(" ms"));
+                    ui.add(egui::DragValue::new(&mut release).range(1.0..=500.0).suffix(" ms"));
                 });
             });
         });
@@ -4403,7 +4630,7 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
                             for target in 0..5 {
                                 let amount = if source == target { 0.5 } else { 0.0 };
                                 let mut amount_val = amount;
-                                ui.add(egui::DragValue::new(&mut amount_val).clamp_range(-1.0..=1.0).speed(0.01));
+                                ui.add(egui::DragValue::new(&mut amount_val).range(-1.0..=1.0).speed(0.01));
                             }
                         });
                     }
@@ -4503,39 +4730,14 @@ fn draw_node_view(ui: &mut egui::Ui, state: &mut NodeViewState) {
 
 /// Helper function to add a node to the canvas
 fn add_node_to_canvas(state: &mut NodeViewState, name: &str, node_type: &str) {
-    let id = format!("{}_{}", name.to_lowercase().replace(" ", "_"), state.node_positions.len());
-    let x = 100.0 + (state.node_positions.len() as f32 * 50.0);
-    let y = 100.0 + (state.node_positions.len() as f32 * 30.0);
-
-    let parameters = match node_type {
-        "generator.sine" => vec![
-            NodeParameter { name: "Frequency".to_string(), value: 440.0, min: 20.0, max: 20000.0, modulated: false },
-            NodeParameter { name: "Amplitude".to_string(), value: 0.8, min: 0.0, max: 1.0, modulated: false },
-        ],
-        "filter.lpf" => vec![
-            NodeParameter { name: "Cutoff".to_string(), value: 1000.0, min: 20.0, max: 20000.0, modulated: true },
-            NodeParameter { name: "Resonance".to_string(), value: 0.7, min: 0.1, max: 10.0, modulated: false },
-        ],
-        "effect.reverb" => vec![
-            NodeParameter { name: "Decay".to_string(), value: 2.0, min: 0.1, max: 10.0, modulated: false },
-            NodeParameter { name: "Mix".to_string(), value: 0.3, min: 0.0, max: 1.0, modulated: false },
-        ],
-        _ => vec![
-            NodeParameter { name: "Level".to_string(), value: 0.8, min: 0.0, max: 1.0, modulated: false },
-        ],
-    };
-
-    state.node_positions.push(NodePosition {
-        id,
-        node_type: node_type.to_string(),
-        x,
-        y,
-        selected: false,
-        parameters,
-    });
+    // Add node directly to hex canvas; position based on existing count
+    let idx = state.hex.next_node_id as f32;
+    let pos = egui::Pos2::new(50.0 + idx * 60.0, 50.0 + idx * 40.0);
+    state.hex.add_node(name, node_type, pos);
 }
 
 /// Helper function to add a preset to the canvas
+    #[allow(dead_code)]
 fn add_preset_to_canvas(state: &mut NodeViewState, preset: &NodePreset) {
     let id = format!("{}_{}", preset.name.to_lowercase().replace(" ", "_"), state.node_positions.len());
     let x = 200.0 + (state.node_positions.len() as f32 * 50.0);
@@ -4718,8 +4920,8 @@ fn add_instrument_preset(state: &mut NodeViewState, instrument_type: &str) {
     }
 }
 
-/// Application Entry Point with UI - Full eframe Implementation
-/// Uses eframe's native App structure for cross-platform GUI
+/// Application Entry Point with UI - Full egui Implementation
+/// Bevy+egui is the runtime; eframe runner removed
 pub fn run_hexodsp_ui() -> Result<(), Box<dyn std::error::Error>> {
     println!("HexoDSP UI - Full eframe implementation");
     println!("Three-View System Architecture:");
@@ -4727,8 +4929,8 @@ pub fn run_hexodsp_ui() -> Result<(), Box<dyn std::error::Error>> {
     println!("  - Live View: Real-time performance interface");
     println!("  - Node View: Modular node-based patching");
 
-    // eframe removed; UI will be driven by bevy_egui systems.
-    println!("Using bevy_egui path");
+    // UI is driven by bevy_egui systems.
+    println!("Using Bevy+egui path");
 
     Ok(())
 }

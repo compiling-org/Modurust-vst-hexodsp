@@ -57,6 +57,13 @@ Input Device → Audio Backend → Node Graph → Output Device
               MIDI 2.0/MPE → Controllers → UI Updates
                     ↓
               AI Tools → Processing → Effects
+
+## UI Views Status (2025-11)
+- **Arrangement View**: Timeline, track routing, automation stubs present; transport is integrated in the bottom panel.
+- **Live View**: DJ controls scaffolded (crossfader, tempo, sync); special “DJ Decks” plugins planned for Tracks 1–2.
+- **Node View**: Hexagonal node canvas and categories present; engine-side node wiring pending.
+- **Transport Panel**: Bottom panel shows status (playing/BPM/time) via `AudioEngineBridge`.
+- **Layout**: Audio monitor merged into main UI to avoid floating obstruction.
 ```
 
 ### Real-time Threading Model
@@ -189,7 +196,14 @@ pub trait Plugin: Send + Sync {
 
 ### API Stability
 - **Semantic Versioning**: Clear versioning scheme
-- **Deprecation Warnings**: Gradual API changes
+    - **Deprecation Warnings**: Gradual API changes
+
+## Roadmap Summary (2025-11)
+- UI: Bevy+egui stabilized; integrate full three-view renderer from `eframe_ui_full` via thin Bevy resources wrapping large state types.
+- Audio: Strengthen `audio_engine::bridge` and `node_instance_manager` so UI operations map to real-time-safe messages on the audio thread.
+- App: Project persistence (`UiState`, presets), plugin scanning and lightweight host surface.
+
+Reference: MeadowlarkDAW/Meadowlark — use as an audio engine and core component reference, not for UI. URL: https://github.com/MeadowlarkDAW/Meadowlark
 - **Migration Guides**: Easy upgrade paths
 
 This architecture provides a solid foundation for a professional-grade digital audio workstation while maintaining the flexibility needed for future enhancements and user requirements.
