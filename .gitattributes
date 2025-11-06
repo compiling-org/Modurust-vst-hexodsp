@@ -41,7 +41,6 @@
 *.data filter=lfs diff=lfs merge=lfs -text
 # Text files that might be large
 *.log filter=lfs diff=lfs merge=lfs -text
-*.txt filter=lfs diff=lfs merge=lfs -text
 # Archives
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.tar.gz filter=lfs diff=lfs merge=lfs -text
