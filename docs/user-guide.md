@@ -1,36 +1,62 @@
 # Modurust DAW User Guide
 
+## ⚠️ CRITICAL: Implementation Status
+**This guide documents features that are NOT YET IMPLEMENTED. Current application only shows basic visual nodes with test tone audio.**
+
 ## Getting Started
 
-### First Launch
-1. **Download and Install**: Get the latest release from GitHub
-2. **Run the Application**: Execute `cargo run` or use the provided binary
-3. **Audio Setup**: The DAW will detect and configure your audio devices automatically
-4. **MIDI Setup**: Connect MIDI controllers for enhanced control
+### First Launch - ACTUAL REALITY
+1. **Build from Source**: No releases available - must compile
+2. **Run the Application**: `cargo run` opens basic UI window
+3. **Audio Setup**: Basic CPAL initialization only - no device configuration
+4. **MIDI Setup**: ❌ NOT IMPLEMENTED - No MIDI support
 
-### Interface Overview
-Modurust features a revolutionary three-view system:
+### Interface Overview - WHAT ACTUALLY WORKS
+Modurust has a three-view system with LIMITED functionality:
 
-#### Arrangement View (Default)
-- **Timeline**: Arrange clips and automation
-- **Tracks**: 8-track mixer with volume, pan, mute/solo
-- **Transport**: Play, stop, record, loop controls
-- **Browser**: File management and presets
+#### Arrangement View (Default) - ❌ NOT FUNCTIONAL
+- **Timeline**: ❌ Not implemented
+- **Tracks**: ❌ No mixer functionality
+- **Transport**: ❌ No play/stop/record controls
+- **Browser**: ❌ No file management
 
-#### Live View
-- **Clip Matrix**: 4x4 grid for live performance
-- **Scenes**: Switch between different clip sets
-- **Crossfader**: Smooth transitions between scenes
-- **Performance Controls**: Real-time parameter manipulation
+#### Live View - ❌ NOT IMPLEMENTED
+- **Clip Matrix**: ❌ No live performance features
+- **Scenes**: ❌ No scene management
+- **Crossfader**: ❌ No crossfading
+- **Performance Controls**: ❌ No real-time manipulation
 
-#### Node View
-- **Visual Patching**: Drag-and-drop signal routing
-- **Node Library**: 8 core audio node types
-- **Connections**: Visual representation of signal flow
-- **Real-time Editing**: Modify patches while playing
+#### Node View - ✅ PARTIALLY WORKING
+- **Visual Patching**: ✅ Visual nodes can be dragged
+- **Node Library**: ✅ 8 visual node types (no audio function)
+- **Connections**: ✅ Visual connections (no signal flow)
+- **Real-time Editing**: ✅ Visual editing only (no audio processing)
  
-### Desktop Demo Walkthrough (Windows)
-- Run: `cargo run` (desktop window opens; no browser involved).
+### Desktop Demo Walkthrough - ⚠️ LIMITED FUNCTIONALITY
+**⚠️ WARNING: This demo script documents INTENDED functionality, not current reality**
+
+#### What Actually Works:
+- ✅ **Visual Node Creation**: Can add visual nodes to canvas
+- ✅ **Node Dragging**: Can move nodes around
+- ✅ **Visual Connections**: Can draw lines between nodes
+- ✅ **Parameter Sliders**: UI sliders exist (no audio effect)
+
+#### What Does NOT Work:
+- ❌ **Audio Output**: Only basic test tones, not connected to nodes
+- ❌ **Play/Stop Controls**: No functional transport
+- ❌ **Parameter Changes**: Sliders move but don't affect audio
+- ❌ **Real-time Processing**: No audio signal flow
+
+#### Current Demo Experience:
+```
+cargo run
+# Opens window with basic UI
+# Can see and drag visual nodes
+# Can draw connections
+# No meaningful audio processing
+```
+
+#### Intended Demo (NOT YET IMPLEMENTED):
 - Open Node View and add nodes in order: `Sine Oscillator` → `Low-Pass Filter (LPF)` → `Delay` → `Output`.
 - Create connections: `Osc → LPF → Delay → Output`.
 - Click `Play` to enable audio; use `Stop` to disable.

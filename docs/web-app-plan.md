@@ -1,44 +1,88 @@
-# HexoDSP Web App Plan (Post-Demo, Elaborate)
+# HexoDSP Web App Plan (Post-Demo, Elaborate) - ⚠️ REALITY CHECK
 
 This document defines a comprehensive plan to build and evolve the HexoDSP Web App in parallel with the desktop application, focusing on browser-based UI, WebGL visualizations, Web Audio integration, Web MIDI/MPE, and remote preview integrations. It complements the desktop-only plan and is intended to guide development over the next 4–8 weeks.
 
-## Executive Summary
-- Objective: Deliver a “full enough” web app that mirrors core DAW workflows: transport, basic recording/export pathways (remote), mixer, node graph editing, Live View, gesture mapping, visualizations, and basic MIDI/MPE and microtuning hooks.
-- Scope: Browser-based client with HTML/CSS/JavaScript and WebGL; optional Web Audio and Web MIDI; flexible backend integration for audio engine via remote bridge.
-- Outcomes: A web UI that allows users to preview and control DAW workflows, trigger visuals, and interact with transport/mixer/node graph with acceptable latency, while deferring heavy DSP to desktop/server where needed.
+## Executive Summary - REALITY CHECK
 
-## Guiding Principles
-- Web-first UX clarity: fast loading, responsive panels, strong visual feedback.
-- Progressive enhancement: fallbacks where APIs are unavailable.
-- Latency-aware: keep time-critical audio on desktop/server when needed; use remote control for UI and visualization.
-- Accessibility: keyboard navigation, ARIA roles, color contrast.
+**⚠️ CRITICAL: This plan documents ASPIRATIONAL functionality far beyond current implementation. The desktop application itself is in early prototype stages.**
 
-## Non-Goals (Initial Release)
-- Full browser-native multitrack audio recording and offline bounce.
-- Complete plugin hosting in-browser.
-- Cloud collaboration and project sharing.
+- **Objective**: Deliver "full enough" web app that mirrors core DAW workflows - **❌ Premature, desktop not functional**
+- **Scope**: Browser-based client with HTML/CSS/JavaScript and WebGL - **❌ No web foundation exists**  
+- **Outcomes**: Web UI for DAW workflows - **❌ No DAW workflows to mirror**
 
-## Architecture Overview (Web)
-- UI Layers:
-  - `web/index.html`: main entry
-  - `web/js/main.js`: app bootstrap and router
-  - `web/js/ui-manager.js`: view toggles and layout management
-  - `web/js/arrangement-view.js`: timeline and playhead
-  - `web/js/live-view.js`: scenes, decks, crossfader
-  - `web/js/node-view.js`: node graph canvas and parameter panels
-  - `web/js/webgl-visualizations.js`: shader effects and meters
-  - `web/js/audio-engine.js`: browser-side audio hooks and remote bridge
-  - `web/js/bevy-integration.js`: optional interop
-  - `web/js/realtime-audio-ui.js`: transport/mixer UI bindings
-  - `web/js/motion-capture.js`: gesture/motion inputs
-  - `web/js/arrangement-view.js`: timeline helpers
-  - `web/js/accessibility.js`: A11y utilities
-- Visuals: WebGL 2.0 shaders, ISF/NUWE-compatible parameter model.
-- Audio Integration: Web Audio API for simple synths/meters; remote control for full DSP via desktop engine.
-- MIDI/MPE: Web MIDI API pathways with per-note expression mapping.
-- Remote Bridge Options:
-  - WebSocket → desktop engine for transport/mixer control and feedback.
-  - REST/WebRTC for asset management and streaming (future).
+## 🎯 EXECUTIVE SUMMARY - CURRENT REALITY
+
+```mermaid
+graph TD
+    A[Web App Plan Claims] --> B[Full Web DAW]
+    A --> C[WebGL Visualizations]
+    A --> D[Web Audio Processing]
+    A --> E[Web MIDI/MPE]
+    
+    B --> B1[❌ No Desktop DAW Yet]
+    C --> C1[❌ No WebGL Foundation]
+    D --> D1[❌ No Audio Engine]
+    E --> E1[❌ No MIDI System]
+    
+    F[Current Status] --> G[❌ Desktop Prototype Only]
+    F --> H[❌ Basic Test Tones]
+    F --> I[❌ Visual Nodes Only]
+    F --> J[❌ No Web Infrastructure]
+```
+
+**Reality: This web app plan is severely premature. The desktop application is a basic visual prototype with test tones only.**
+
+## Guiding Principles - PREMATURE PLANNING
+- **Web-first UX clarity**: ❌ No web foundation exists
+- **Progressive enhancement**: ❌ No fallback system
+- **Latency-aware**: ❌ No desktop engine to defer to
+- **Accessibility**: ❌ No accessibility implementation
+
+## Non-Goals (Initial Release) - IRRELEVANT
+- **Full browser-native multitrack audio**: ❌ No desktop DAW exists
+- **Complete plugin hosting**: ❌ No plugin system anywhere
+- **Cloud collaboration**: ❌ No collaboration framework
+
+## Architecture Overview (Web) - NO FOUNDATION
+
+### ❌ CLAIMED ARCHITECTURE (NOT BUILT):
+- UI Layers: No `web/` directory exists
+- Visuals: No WebGL 2.0 shaders implemented
+- Audio Integration: No Web Audio API integration
+- MIDI/MPE: No Web MIDI API pathways
+- Remote Bridge: No WebSocket or networking
+
+### ✅ ACTUAL STATUS:
+- **No web infrastructure**: Zero web files or structure
+- **No JavaScript codebase**: No client-side code
+- **No WebGL implementation**: No graphics programming
+- **No audio web APIs**: No browser audio integration
+- **No networking**: No remote bridge system
+
+```mermaid
+graph TD
+    subgraph "Claimed Web Architecture"
+        A[WebGL Shaders]
+        B[Web Audio API]
+        C[Web MIDI/MPE]
+        D[Remote Bridge]
+        E[HTML/CSS/JS]
+    end
+    
+    subgraph "Current Reality"
+        F[❌ No Web Files]
+        G[❌ No Web Audio]
+        H[❌ No Web MIDI]
+        I[❌ No Networking]
+        J[❌ No WebGL]
+    end
+    
+    A --> F
+    B --> G
+    C --> H
+    D --> I
+    E --> J
+```
 
 ## Feature Matrix (Web)
 1. Transport (Play/Stop/Pause, BPM, Loop)

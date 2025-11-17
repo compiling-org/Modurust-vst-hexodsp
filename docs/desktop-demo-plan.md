@@ -1,15 +1,19 @@
-# Desktop Demo Plan (Desktop-Only)
+# Desktop Demo Plan (Desktop-Only) - ⚠️ REALITY CHECK
+
+**⚠️ CRITICAL: This plan documents INTENDED functionality, not current implementation. Most features are NOT YET BUILT.**
 
 This plan provides an explicit, click-by-click script to run and verify the desktop demo. It applies to Windows and uses Bevy + `bevy_egui` UI with CPAL audio output.
 
-## Prerequisites
+## Prerequisites - ACTUAL REQUIREMENTS
 - Rust toolchain installed (`rustup`, stable).
 - A working audio output device on Windows.
 - Project checked out at `c:\Users\kapil\compiling\hexodsp-vst3`.
+- **⚠️ Warning: Limited functionality available**
 
-## How to Run (Windows)
+## How to Run (Windows) - CURRENT EXPERIENCE
 - `cargo run` (no environment variables needed).
 - The desktop window opens using Bevy + `bevy_egui`.
+- **Result: Basic UI with visual nodes only - no audio processing**
 
 ## Demo Script (Operator Steps)
 1. Open the Node View from the desktop UI.
@@ -30,18 +34,65 @@ This plan provides an explicit, click-by-click script to run and verify the desk
    - Select `LPF` and adjust `Cutoff` (e.g., 200–8000 Hz).
    - Select `Delay` and adjust `Feedback` (e.g., 0.0–0.8).
    - Confirm each slider change produces audible differences.
-6. Canvas controls (visual verification):
+6. Canvas controls for visuals:
    - Toggle `Lock Nodes` and attempt to drag nodes (should not move when locked).
    - Toggle `Grid Snap` and drag nodes (positions snap to grid).
    - Adjust `Sides` slider (3–12). Default is 6 (hex). Nodes re-render accordingly.
    - Toggle `Ports on vertices` to move ports from edges to corners; wiring remains valid.
 
-## Expected Behaviors
+## Expected Behaviors - REALITY CHECK
+
+### ❌ CLAIMED (NOT WORKING):
 - Nodes render as regular polygons; accurate hit-testing, selection, and dragging.
 - Ports placed on edges by default; shift to vertices when toggled.
 - Connections draw routed curves with clear directionality.
 - Audio outputs via CPAL backend; transport gates audio (`Play`/`Stop`).
 - Parameter sliders send updates to the audio engine; sound changes immediately.
+
+### ✅ ACTUAL (WORKING):
+- **Visual node rendering**: Basic polygon shapes
+- **Mouse interaction**: Can select and drag nodes
+- **Visual connections**: Lines drawn between nodes
+- **Basic CPAL initialization**: Test tone generation only
+- **UI framework**: Basic egui components
+
+## Engine Bridge Notes - CURRENT LIMITATIONS
+
+### ❌ CLAIMED BRIDGE FUNCTIONALITY:
+- UI sends `AudioParamMessage` to the audio engine via the bridge:
+  - `CreateNode(ui_node_id, node_kind)` when adding a node.
+  - `ConnectNodes(src_ui_node_id, src_port, dst_ui_node_id, dst_port)` when wiring ports.
+  - `SetNodeParameter(ui_node_id, param_name, value)` when adjusting sliders.
+- Transport gating uses engine calls that enable/disable playback in CPAL output.
+
+### ✅ ACTUAL BRIDGE STATUS:
+- **Basic message framework exists** but **no audio processing**
+- **Visual node creation** works but **no audio connection**
+- **Parameter sliders move** but **don't affect audio**
+- **No transport system** - no play/stop functionality
+
+## 🎯 CURRENT DEMO REALITY SUMMARY
+
+### What You Can Actually Do:
+```bash
+cargo run
+# Opens basic UI window
+# Can see visual nodes
+# Can drag nodes around
+# Can draw connections
+# Can move sliders (no audio effect)
+# Basic test tone audio only
+```
+
+### What You CANNOT Do (Despite Claims):
+- ❌ **No real audio processing** - Only test tones
+- ❌ **No transport controls** - Cannot play/stop
+- ❌ **No parameter audio changes** - Sliders move but don't affect sound
+- ❌ **No file I/O** - Cannot save/load anything
+- ❌ **No professional DAW features** - This is a visual prototype only
+
+### Honest Assessment:
+**This is a basic visual demonstration of the UI framework, not a functional DAW demo. All audio processing, transport, and professional features are aspirational and not implemented.**
 
 ## Engine Bridge Notes (for developers)
 - UI sends `AudioParamMessage` to the audio engine via the bridge:
