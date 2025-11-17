@@ -1,5 +1,37 @@
 # Modurust DAW
 
+## ⚠️ Reality Check (Updated 2025-11-17)
+This README reflects the current, accurate implementation status. Many previously documented features were aspirational and are not implemented yet.
+
+```mermaid
+graph TD
+    A[Modurust DAW] --> B[Three-View System]
+    A --> C[Audio Engine]
+    A --> D[MIDI Support]
+    A --> E[AI Tools]
+    
+    B --> B1[❌ Arrangement View\nBasic UI Only]
+    B --> B2[❌ Live View\nNot Implemented]
+    B --> B3[✅ Node View\nVisual Nodes Working]
+    
+    C --> C1[⚠️ CPAL Init\nTest Tone Only]
+    C --> C2[❌ Real-time DSP]
+    C --> C3[❌ Latency Claims Unverified]
+    
+    D --> D1[❌ MIDI 2.0]
+    D --> D2[❌ MPE]
+    
+    E --> E1[❌ AI Synthesis]
+    E --> E2[❌ Stem Separation]
+```
+
+Quick links to reality-based docs:
+- `docs/changes-features-ACCURATE.md` — honest feature/status overview
+- `docs/architecture.md` — technical architecture with current reality
+- `docs/node-system-features.md` — node system status and plans
+- `docs/web-app-plan.md` — marked as premature vs desktop reality
+
+
 ![Modurust DAW](https://img.shields.io/badge/Version-0.1.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-1.75+-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
